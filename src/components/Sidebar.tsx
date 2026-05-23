@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
 import { useMode } from '@/contexts/ModeContext'
 import { supabase } from '@/lib/supabase'
+import { LOCATION_PINS } from '@/lib/locationPins'
 
 const adminMenu = [
   { href: '/', label: 'Ana Sayfa' },
@@ -37,7 +38,7 @@ const cashierMenu = [
   { href: '/fire', label: 'Fire & İade' },
 ]
 
-interface LocationRow { id: string; name: string; cashier_pin: string | null }
+interface LocationRow { id: string; name: string }
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -70,7 +71,7 @@ export default function Sidebar() {
   }, [isAdminMode, cashierLocationId])
 
   async function openLocModal() {
-    const { data } = await supabase.from('locations').select('id, name, cashier_pin').order('name')
+    const { data } = await supabase.from('locations').select('id, name').order('name')
     setLocations((data ?? []) as LocationRow[])
     setSelectedLocId(data?.[0]?.id ?? '')
     setLocStep('select')
@@ -89,7 +90,7 @@ export default function Sidebar() {
   function handleCashierPinSubmit() {
     const loc = locations.find(l => l.id === selectedLocId)
     if (!loc) return
-    const correctPin = loc.cashier_pin ?? '0000'
+    const correctPin = LOCATION_PINS[loc.id] ?? '0000'
     if (cashierPin === correctPin) {
       enterCashierMode(loc.id, loc.name)
       setShowLocModal(false)
