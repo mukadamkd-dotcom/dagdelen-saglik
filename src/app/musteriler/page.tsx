@@ -292,8 +292,11 @@ export default function MusterilerPage() {
       {/* Ekle/Düzenle Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded border border-stone-200 w-full max-w-lg p-7 shadow-lg">
-            <h3 className="text-xl font-bold text-stone-900 mb-6">{editing ? 'Müşteriyi Düzenle' : 'Yeni Müşteri'}</h3>
+          <div className="bg-white rounded border border-stone-200 w-full max-w-lg shadow-lg max-h-[90vh] flex flex-col">
+            <div className="px-7 pt-7 pb-0 flex-shrink-0">
+              <h3 className="text-xl font-bold text-stone-900 mb-6">{editing ? 'Müşteriyi Düzenle' : 'Yeni Müşteri'}</h3>
+            </div>
+            <div className="overflow-y-auto flex-1 px-7">
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-stone-700 mb-1.5">İsim *</label>
@@ -338,7 +341,8 @@ export default function MusterilerPage() {
                 <textarea className={inp} rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
-            <div className="flex gap-3 mt-7">
+            </div>
+            <div className="flex gap-3 px-7 py-5 flex-shrink-0 border-t border-stone-100">
               <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
