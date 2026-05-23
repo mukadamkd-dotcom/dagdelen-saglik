@@ -90,6 +90,16 @@ export default function MusterilerPage() {
     setShowModal(true)
   }
 
+  async function handleDelete() {
+    if (!editing) return
+    if (!confirm(`"${editing.name}" silinsin mi? Bu işlem geri alınamaz.`)) return
+    setSaving(true)
+    await supabase.from('customers').delete().eq('id', editing.id)
+    setSaving(false)
+    setShowModal(false)
+    fetchCustomers()
+  }
+
   async function handleSave() {
     if (!form.name) return alert('Müşteri adı zorunludur.')
     setSaving(true)
@@ -346,6 +356,11 @@ export default function MusterilerPage() {
               <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
+              {editing && (
+                <button onClick={handleDelete} disabled={saving} className="bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 border border-red-200 px-4 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+                  Sil
+                </button>
+              )}
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 İptal
               </button>
