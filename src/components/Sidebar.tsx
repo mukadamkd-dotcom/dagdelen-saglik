@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMode } from '@/contexts/ModeContext'
 import { supabase } from '@/lib/supabase'
 
@@ -39,15 +39,24 @@ const cashierMenu = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { isAdminMode, enterAdminMode, enterCashierMode } = useMode()
+  const { isAdminMode, cashierLocationId, enterAdminMode, enterCashierMode } = useMode()
   const [showPinModal, setShowPinModal] = useState(false)
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
   const [showLocModal, setShowLocModal] = useState(false)
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([])
   const [selectedLocId, setSelectedLocId] = useState('')
+  const [logoClicks, setLogoClicks] = useState(0)
+  const logoClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const menu = isAdminMode ? adminMenu : cashierMenu
+
+  // İlk açılışta şube seçilmemişse otomatik modal aç
+  useEffect(() => {
+    if (!isAdminMode && !cashierLocationId) {
+      openLocModal()
+    }
+  }, [isAdminMode, cashierLocationId])
 
   function handlePinSubmit() {
     const success = enterAdminMode(pin)
@@ -69,6 +78,18 @@ export default function Sidebar() {
     setShowLocModal(false)
   }
 
+  function handleLogoClick() {
+    const newCount = logoClicks + 1
+    setLogoClicks(newCount)
+    if (logoClickTimer.current) clearTimeout(logoClickTimer.current)
+    if (newCount >= 5) {
+      setLogoClicks(0)
+      setShowPinModal(true)
+    } else {
+      logoClickTimer.current = setTimeout(() => setLogoClicks(0), 2000)
+    }
+  }
+
   return (
     <>
       <aside
@@ -76,7 +97,7 @@ export default function Sidebar() {
         style={{ width: '260px', background: '#FFFFFF', borderRight: '1px solid #E5E7EB' }}
       >
         {/* Brand — turuncu şerit */}
-        <div className="px-6 py-5 flex-shrink-0" style={{ background: '#F27A1A' }}>
+        <div className="px-6 py-5 flex-shrink-0 cursor-default select-none" style={{ background: '#F27A1A' }} onClick={handleLogoClick}>
           <p className="text-white font-bold text-xl tracking-wide" style={{ fontFamily: 'var(--font-display, Georgia, serif)', fontWeight: 600 }}>
             Dağdelen
           </p>
@@ -120,23 +141,13 @@ export default function Sidebar() {
 
         {/* Footer */}
         <div className="px-4 pb-5 pt-3 flex-shrink-0" style={{ borderTop: '1px solid #F0F0F0' }}>
-          {isAdminMode ? (
-            <button
-              onClick={openLocModal}
-              className="w-full flex items-center justify-center px-3 py-2.5 mb-3 transition-all font-semibold text-[11px] tracking-wider uppercase"
-              style={{ borderRadius: '6px', border: '1.5px solid #F27A1A', color: '#F27A1A', background: 'white' }}
-            >
-              Kasiyer Moduna Geç
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowPinModal(true)}
-              className="w-full flex items-center justify-center px-3 py-2.5 mb-3 transition-all font-semibold text-[11px] tracking-wider uppercase text-white"
-              style={{ borderRadius: '6px', background: '#F27A1A' }}
-            >
-              Yönetici Girişi
-            </button>
-          )}
+          <button
+            onClick={openLocModal}
+            className="w-full flex items-center justify-center px-3 py-2.5 mb-3 transition-all font-semibold text-[11px] tracking-wider uppercase"
+            style={{ borderRadius: '6px', border: '1.5px solid #F27A1A', color: '#F27A1A', background: 'white' }}
+          >
+            {isAdminMode ? 'Kasiyer Moduna Geç' : 'Şube Değiştir'}
+          </button>
           <div className="flex items-center justify-center gap-2">
             <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22C55E' }} />
             <p style={{ color: '#9CA3AF', fontSize: '10px' }}>Sistem aktif · v1.0.0</p>

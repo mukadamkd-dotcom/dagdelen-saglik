@@ -22,13 +22,18 @@ const ModeContext = createContext<ModeContextType>({
 })
 
 export function ModeProvider({ children }: { children: ReactNode }) {
-  const [isAdminMode, setIsAdminMode] = useState(true)
+  const [isAdminMode, setIsAdminMode] = useState(false)
   const [cashierLocationId, setCashierLocationId] = useState<string | null>(null)
   const [cashierLocationName, setCashierLocationName] = useState<string | null>(null)
 
   useEffect(() => {
     try {
-      if (localStorage.getItem('dagdelen_mode') === 'cashier') {
+      const mode = localStorage.getItem('dagdelen_mode')
+      if (mode === 'admin') {
+        setIsAdminMode(true)
+        setCashierLocationId(null)
+        setCashierLocationName(null)
+      } else {
         setIsAdminMode(false)
         setCashierLocationId(localStorage.getItem('dagdelen_loc_id'))
         setCashierLocationName(localStorage.getItem('dagdelen_loc_name'))
