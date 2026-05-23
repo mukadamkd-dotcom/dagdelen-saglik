@@ -261,14 +261,14 @@ export default function StokPage() {
       <div className="flex items-end gap-0 mb-6 border-b border-stone-200">
         <button
           onClick={() => setTab('durum')}
-          className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] border-b-2 transition-all ${tab === 'durum' ? 'border-teal-600 text-teal-700' : 'border-transparent text-stone-400 hover:text-stone-600'}`}
+          className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] border-b-2 transition-all ${tab === 'durum' ? 'border-[#F27A1A] text-[#E06010]' : 'border-transparent text-stone-400 hover:text-stone-600'}`}
         >
           Stok Durumu
         </button>
         {isAdminMode && (
           <button
             onClick={() => setTab('sayim')}
-            className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] border-b-2 transition-all ${tab === 'sayim' ? 'border-teal-600 text-teal-700' : 'border-transparent text-stone-400 hover:text-stone-600'}`}
+            className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] border-b-2 transition-all ${tab === 'sayim' ? 'border-[#F27A1A] text-[#E06010]' : 'border-transparent text-stone-400 hover:text-stone-600'}`}
           >
             Stok Sayım & Düzenleme
           </button>
@@ -311,11 +311,11 @@ export default function StokPage() {
               <div className="flex border border-stone-200 rounded-sm overflow-hidden flex-shrink-0">
                 <button
                   onClick={() => setSort('name')}
-                  className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors ${sort === 'name' ? 'bg-teal-600 text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
+                  className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors ${sort === 'name' ? 'bg-[#F27A1A] text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
                 >İsme Göre</button>
                 <button
                   onClick={() => setSort('stock')}
-                  className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors border-l border-stone-200 ${sort === 'stock' ? 'bg-teal-600 text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
+                  className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors border-l border-stone-200 ${sort === 'stock' ? 'bg-[#F27A1A] text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
                 >Stoğa Göre</button>
               </div>
             </div>
@@ -440,7 +440,7 @@ export default function StokPage() {
               <button
                 onClick={() => fetchSayim(sayimLocId)}
                 disabled={!sayimLocId || sayimLoading}
-                className="bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white px-4 py-2 rounded-sm text-[11px] tracking-[0.2em] uppercase font-medium transition-all"
+                className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 text-white px-4 py-2 rounded-sm text-[11px] tracking-[0.2em] uppercase font-medium transition-all"
               >
                 {sayimLoading ? 'Yükleniyor...' : 'Sayımı Başlat'}
               </button>
@@ -473,7 +473,7 @@ export default function StokPage() {
 
           {/* Save bar */}
           {changedRows.length > 0 && (
-            <div className="flex items-center justify-between bg-teal-600 text-white px-5 py-3.5 mb-4 rounded-sm">
+            <div className="flex items-center justify-between bg-[#F27A1A] text-white px-5 py-3.5 mb-4 rounded-sm">
               <div>
                 <p className="text-sm font-semibold">{changedRows.length} üründe değişiklik var</p>
                 <p className="text-stone-400 text-xs mt-0.5">Kaydetmeden sayfadan çıkarsanız değişiklikler kaybolur</p>
@@ -611,7 +611,7 @@ export default function StokPage() {
                 <button
                   onClick={saveSayim}
                   disabled={saving || changedRows.length === 0}
-                  className="bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white px-6 py-2.5 rounded-sm text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
+                  className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 text-white px-6 py-2.5 rounded-sm text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
                 >
                   {saving ? 'Kaydediliyor...' : 'Kaydet'}
                 </button>
@@ -643,7 +643,7 @@ export default function StokPage() {
                 onError={e => (e.currentTarget.style.display = 'none')} onLoad={e => (e.currentTarget.style.display = 'block')} />
             )}
             <div className="flex gap-2">
-              <button onClick={() => saveEditImg()} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">Kaydet</button>
+              <button onClick={() => saveEditImg()} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">Kaydet</button>
               <button onClick={() => saveEditImg(true)} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2.5 rounded text-xs font-semibold transition-colors">Sil</button>
               <button onClick={() => setEditImg(null)} className="bg-stone-100 hover:bg-stone-200 text-stone-700 px-4 py-2.5 rounded text-xs font-semibold transition-colors">İptal</button>
             </div>

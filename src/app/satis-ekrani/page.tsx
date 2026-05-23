@@ -54,6 +54,9 @@ export default function SatisEkraniPage() {
   const [totalReceived, setTotalReceived] = useState('')
   const [step, setStep] = useState<'cart' | 'payment'>('cart')
   const [completing, setCompleting] = useState(false)
+  const [splitToVeresiye, setSplitToVeresiye] = useState(false)
+  const [referrerName, setReferrerName] = useState<string | null>(null)
+  const [isFirstPurchase, setIsFirstPurchase] = useState(false)
   const [batchSelector, setBatchSelector] = useState<{
     product: Product
     batches: { id: string; expiry_date: string; quantity: number }[]
@@ -63,6 +66,7 @@ export default function SatisEkraniPage() {
     total: number
     change: number
     method: PaymentMethod
+    splitVeresiye?: number
   } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -71,6 +75,21 @@ export default function SatisEkraniPage() {
   useEffect(() => {
     if (cashierLocationId) setLocationId(cashierLocationId)
   }, [cashierLocationId])
+
+  useEffect(() => {
+    if (customerMode === 'eski' && customerId) checkReferral(customerId)
+    else { setReferrerName(null); setIsFirstPurchase(false) }
+  }, [customerId, customerMode])
+
+  async function checkReferral(cid: string) {
+    const [{ data: custData }, { count }] = await Promise.all([
+      supabase.from('customers').select('referred_by, customers!referred_by(name)').eq('id', cid).single(),
+      supabase.from('sales').select('id', { count: 'exact' }).eq('customer_id', cid).eq('status', 'tamamlandi'),
+    ])
+    const refName = (custData as any)?.customers?.name ?? null
+    setReferrerName(refName)
+    setIsFirstPurchase((count ?? 0) === 0)
+  }
 
   async function fetchAll() {
     const [{ data: prods }, { data: inv }, { data: locs }, { data: custs }] = await Promise.all([
@@ -147,6 +166,7 @@ function clearCart() {
     setCashReceived('')
     setTotalReceived('')
     setPayment(null)
+    setSplitToVeresiye(false)
     setCustomerId('')
     setCustomerMode('yeni')
     setCustomerSearch('')
@@ -175,8 +195,9 @@ function clearCart() {
   const customerValid =
     (customerMode === 'eski' && !!customerId) ||
     (customerMode === 'yeni' && !!newCustomerName.trim())
+  const veresiyeAmt = splitToVeresiye ? total - cashVal : 0
   const canComplete = !completing && !!payment && !!locationId && cart.length > 0 && !hasMinPriceError &&
-    customerValid && (payment !== 'nakit' || cashVal >= total)
+    customerValid && (payment !== 'nakit' || cashVal >= total || (splitToVeresiye && cashVal > 0))
 
   async function completeSale() {
     if (!canComplete) return
@@ -193,14 +214,19 @@ function clearCart() {
         resolvedCustomerId = newCust?.id ?? null
       }
 
+      const saleNotes = splitToVeresiye
+        ? `Ödeme: Nakit ₺${cashVal.toLocaleString('tr-TR')} + Veresiye ₺${veresiyeAmt.toLocaleString('tr-TR')}`
+        : `Ödeme: ${paymentLabels[payment!]}`
+      const saleStatus = (payment === 'veresiye' || splitToVeresiye) ? 'veresiye' : 'tamamlandi'
+
       const { data: sale, error: saleErr } = await supabase.from('sales').insert({
         location_id: locationId,
         customer_id: resolvedCustomerId,
         channel: 'fiziksel',
         total_amount: total,
         discount_amount: discountAmt,
-        notes: `Ödeme: ${paymentLabels[payment!]}`,
-        status: payment === 'veresiye' ? 'veresiye' : 'tamamlandi',
+        notes: saleNotes,
+        status: saleStatus,
       }).select().single()
 
       if (saleErr || !sale) {
@@ -242,8 +268,9 @@ function clearCart() {
       setReceipt({
         items: [...cart],
         total,
-        change: payment === 'nakit' ? Math.max(0, change) : 0,
+        change: payment === 'nakit' && !splitToVeresiye ? Math.max(0, change) : 0,
         method: payment!,
+        splitVeresiye: splitToVeresiye ? veresiyeAmt : undefined,
       })
       clearCart()
       fetchAll()
@@ -372,7 +399,7 @@ function clearCart() {
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {inCart ? (
-                          <span className="bg-teal-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-sm tabular-nums">
+                          <span className="bg-[#F27A1A] text-white text-[10px] font-bold px-2.5 py-1 rounded-sm tabular-nums">
                             {inCartQty} adet
                           </span>
                         ) : (
@@ -567,7 +594,7 @@ function clearCart() {
                 <button
                   onClick={() => setStep('payment')}
                   disabled={hasMinPriceError || discountAmt > maxDiscount}
-                  className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
+                  className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
                 >
                   Ödemeye Geç →
                 </button>
@@ -614,13 +641,11 @@ function clearCart() {
                   ))}
                 </div>
               </div>
-            </div>
-
-            {/* Payment controls */}
-            <div className="border-t border-stone-100 px-4 py-4 space-y-3.5 flex-shrink-0">
+              {/* Payment controls */}
+              <div className="border-t border-stone-100 px-4 py-4 space-y-3.5">
 
               {/* Total prominent display */}
-              <div className="bg-teal-700 text-white rounded-sm px-4 py-3 flex justify-between items-center">
+              <div className="bg-[#E06010] text-white rounded-sm px-4 py-3 flex justify-between items-center">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">Ödenecek Tutar</span>
                 <span className="text-2xl font-bold tabular-nums">₺{total.toLocaleString('tr-TR')}</span>
               </div>
@@ -640,7 +665,7 @@ function clearCart() {
                       onClick={() => { setCustomerMode(m.key); setCustomerId(''); setCustomerSearch('') }}
                       className={`py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] rounded-sm border transition-all ${
                         customerMode === m.key
-                          ? 'bg-teal-600 text-white border-teal-600'
+                          ? 'bg-[#F27A1A] text-white border-[#F27A1A]'
                           : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
                       }`}
                     >{m.label}</button>
@@ -687,9 +712,24 @@ function clearCart() {
                       </div>
                     )}
                     {customerId && (
-                      <div className="flex items-center justify-between bg-stone-50 border border-stone-100 rounded-sm px-3 py-2">
-                        <span className="text-xs font-semibold text-stone-800">{customerSearch}</span>
-                        <button onClick={() => { setCustomerId(''); setCustomerSearch('') }} className="text-stone-300 hover:text-red-400 text-lg leading-none transition-colors">×</button>
+                      <div>
+                        <div className="flex items-center justify-between bg-stone-50 border border-stone-100 rounded-sm px-3 py-2">
+                          <span className="text-xs font-semibold text-stone-800">{customerSearch}</span>
+                          <button onClick={() => { setCustomerId(''); setCustomerSearch('') }} className="text-stone-300 hover:text-red-400 text-lg leading-none transition-colors">×</button>
+                        </div>
+                        {referrerName && (
+                          <div className="mt-1.5 bg-[#FFF3E8] border border-[#FDBA74] rounded-sm px-3 py-2">
+                            <p className="text-[10px] font-bold text-[#E06010] uppercase tracking-[0.1em]">Referans Müşteri</p>
+                            <p className="text-xs text-[#F27A1A] mt-0.5">
+                              <span className="font-semibold">{referrerName}</span> yönlendirdi
+                            </p>
+                            {isFirstPurchase && (
+                              <p className="text-[10px] text-[#F27A1A] mt-1 font-semibold">
+                                ★ İlk alışveriş — ₺10 hoşgeldin indirimi uygula · {referrerName} ₺20 çek kazandı
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -729,10 +769,10 @@ function clearCart() {
                   {(['nakit', 'kart', 'iban', 'veresiye'] as PaymentMethod[]).map(m => (
                     <button
                       key={m}
-                      onClick={() => { setPayment(m); if (m !== 'nakit') setCashReceived('') }}
+                      onClick={() => { setPayment(m); if (m !== 'nakit') { setCashReceived(''); setSplitToVeresiye(false) } }}
                       className={`py-3 text-[10px] font-semibold uppercase tracking-[0.12em] rounded-sm border transition-all ${
                         payment === m
-                          ? m === 'veresiye' ? 'bg-amber-600 text-white border-amber-600' : 'bg-teal-600 text-white border-teal-600'
+                          ? m === 'veresiye' ? 'bg-amber-600 text-white border-amber-600' : 'bg-[#F27A1A] text-white border-[#F27A1A]'
                           : 'bg-white text-stone-600 border-stone-200 hover:border-stone-400 hover:text-stone-800'
                       }`}
                     >
@@ -757,7 +797,7 @@ function clearCart() {
                       min="0"
                       step="5"
                       value={cashReceived}
-                      onChange={e => setCashReceived(e.target.value)}
+                      onChange={e => { setCashReceived(e.target.value); setSplitToVeresiye(false) }}
                       placeholder={`min. ₺${total.toLocaleString('tr-TR')}`}
                       className="w-full border border-stone-200 rounded-sm px-3 py-2.5 text-sm font-semibold outline-none focus:border-stone-400 transition-colors tabular-nums"
                       autoFocus
@@ -767,15 +807,48 @@ function clearCart() {
                     {[50, 100, 200, 500].map(v => (
                       <button
                         key={v}
-                        onClick={() => setCashReceived(String(v))}
+                        onClick={() => { setCashReceived(String(v)); setSplitToVeresiye(false) }}
                         className="py-1.5 text-[10px] font-semibold border border-stone-200 hover:border-stone-400 hover:bg-stone-50 text-stone-600 rounded-sm transition-colors"
                       >
                         ₺{v}
                       </button>
                     ))}
                   </div>
-                  {cashVal > 0 && cashVal < total && (
-                    <p className="text-red-500 text-[10px] font-medium">Eksik: ₺{(total - cashVal).toLocaleString('tr-TR')}</p>
+                  {cashVal > 0 && cashVal < total && !splitToVeresiye && (
+                    <>
+                      <p className="text-red-500 text-[10px] font-medium">Eksik: ₺{(total - cashVal).toLocaleString('tr-TR')}</p>
+                      {customerValid ? (
+                        <button
+                          onClick={() => setSplitToVeresiye(true)}
+                          className="w-full py-2.5 border border-amber-300 bg-amber-50 text-amber-700 text-[10px] font-bold uppercase tracking-[0.15em] rounded-sm hover:bg-amber-100 transition-colors"
+                        >
+                          ₺{(total - cashVal).toLocaleString('tr-TR')} Kalanı Veresiyeye At
+                        </button>
+                      ) : (
+                        <p className="text-amber-600 text-[10px] font-semibold bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
+                          Veresiyeye atmak için önce müşteri seçin
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {splitToVeresiye && cashVal > 0 && cashVal < total && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-sm px-3 py-3 space-y-2">
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-[0.15em]">Kısmi Ödeme</p>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-stone-600">Nakit alındı</span>
+                        <span className="font-bold text-stone-900 tabular-nums">₺{cashVal.toLocaleString('tr-TR')}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-stone-600">Veresiyeye yazılacak</span>
+                        <span className="font-bold text-amber-700 tabular-nums">₺{veresiyeAmt.toLocaleString('tr-TR')}</span>
+                      </div>
+                      <button
+                        onClick={() => setSplitToVeresiye(false)}
+                        className="w-full py-1.5 text-[10px] text-stone-500 hover:text-stone-700 font-medium transition-colors"
+                      >
+                        İptal — tam nakit alındı
+                      </button>
+                    </div>
                   )}
                   {cashVal >= total && (
                     <div className="bg-emerald-50 border border-emerald-100 rounded-sm px-3 py-2.5 flex justify-between items-center">
@@ -786,13 +859,28 @@ function clearCart() {
                 </div>
               )}
 
-              {/* Complete */}
+              </div>
+            </div>
+
+            {/* Pinned complete button — her zaman görünür */}
+            <div className="flex-shrink-0 border-t-2 border-stone-200 px-4 py-3 bg-white">
+              {hasMinPriceError && (
+                <p className="text-red-500 text-[10px] font-semibold text-center mb-2">
+                  Minimum fiyat hatası — fiyatları kontrol edin
+                </p>
+              )}
+              {!payment && (
+                <p className="text-stone-400 text-[10px] text-center mb-2">Ödeme yöntemi seçin</p>
+              )}
+              {(payment === 'veresiye' || splitToVeresiye) && !customerValid && (
+                <p className="text-amber-600 text-[10px] font-semibold text-center mb-2">Veresiye için müşteri seçin veya yeni müşteri adı girin</p>
+              )}
               <button
                 onClick={completeSale}
                 disabled={!canComplete}
-                className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all shadow-sm"
+                className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[12px] tracking-[0.3em] uppercase font-bold transition-all shadow-md"
               >
-                {completing ? 'Kaydediliyor...' : 'Satışı Tamamla'}
+                {completing ? 'Kaydediliyor...' : splitToVeresiye ? `Nakit ₺${cashVal.toLocaleString('tr-TR')} + Veresiye ₺${veresiyeAmt.toLocaleString('tr-TR')}` : 'Satışı Tamamla'}
               </button>
             </div>
           </>
@@ -862,17 +950,29 @@ function clearCart() {
                 <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Toplam</span>
                 <span className="text-2xl font-bold text-stone-900 tabular-nums">₺{receipt.total.toLocaleString('tr-TR')}</span>
               </div>
-              {receipt.method === 'nakit' && receipt.change > 0 && (
+              {receipt.method === 'nakit' && receipt.change > 0 && !receipt.splitVeresiye && (
                 <div className="flex justify-between items-center pt-1">
                   <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-[0.15em]">Para Üstü</span>
                   <span className="text-xl font-bold text-emerald-700 tabular-nums">₺{receipt.change.toLocaleString('tr-TR')}</span>
+                </div>
+              )}
+              {receipt.splitVeresiye && (
+                <div className="mt-1 pt-2 border-t border-stone-200 space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stone-500">Nakit alındı</span>
+                    <span className="font-semibold text-stone-800 tabular-nums">₺{(receipt.total - receipt.splitVeresiye).toLocaleString('tr-TR')}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-amber-600 font-semibold">Veresiyeye yazıldı</span>
+                    <span className="font-bold text-amber-700 tabular-nums">₺{receipt.splitVeresiye.toLocaleString('tr-TR')}</span>
+                  </div>
                 </div>
               )}
             </div>
 
             <button
               onClick={() => { setReceipt(null); setTimeout(() => searchRef.current?.focus(), 0) }}
-              className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
+              className="w-full bg-[#F27A1A] hover:bg-[#E06010] text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
             >
               Yeni Satış
             </button>

@@ -31,6 +31,7 @@ export default function SatislarPage() {
   const [form, setForm] = useState(emptyForm)
   const [items, setItems] = useState<SaleItem[]>([{ product_id: '', quantity: 1, sale_price: 0, purchase_price: 0 }])
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [filterLoc, setFilterLoc] = useState('')
   const { isAdminMode, cashierLocationId } = useMode()
 
@@ -94,6 +95,15 @@ export default function SatislarPage() {
     fetchAll()
   }
 
+  async function deleteSale(id: string) {
+    if (!confirm('Bu satışı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.')) return
+    setDeleting(id)
+    await supabase.from('sale_items').delete().eq('sale_id', id)
+    await supabase.from('sales').delete().eq('id', id)
+    setDeleting(null)
+    fetchAll()
+  }
+
   const filtered = filterLoc ? sales.filter(s => s.location_id === filterLoc) : sales
 
   const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
@@ -111,7 +121,7 @@ export default function SatislarPage() {
             setForm({ ...emptyForm, location_id: !isAdminMode && cashierLocationId ? cashierLocationId : '' })
             setShowModal(true)
           }}
-          className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
+          className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
         >
           + Yeni Satış
         </button>
@@ -143,12 +153,13 @@ export default function SatislarPage() {
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Toplam</th>
                 {isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Kar</th>}
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Durum</th>
+                {isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={isAdminMode ? 8 : 7} className="px-5 py-12 text-center">
+                  <td colSpan={isAdminMode ? 9 : 7} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
                       <div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
@@ -156,7 +167,7 @@ export default function SatislarPage() {
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={isAdminMode ? 8 : 7} className="px-5 py-12 text-center text-stone-400 text-sm">Satış bulunamadı</td></tr>
+                <tr><td colSpan={isAdminMode ? 9 : 7} className="px-5 py-12 text-center text-stone-400 text-sm">Satış bulunamadı</td></tr>
               ) : filtered.map(s => {
                 const profit = (s.sale_items ?? []).reduce((sum: number, i: any) => sum + Number(i.profit ?? 0), 0)
                 const badge = statusMap[s.status]
@@ -178,6 +189,17 @@ export default function SatislarPage() {
                         {s.status}
                       </span>
                     </td>
+                    {isAdminMode && (
+                      <td className="px-5 py-3.5">
+                        <button
+                          onClick={() => deleteSale(s.id)}
+                          disabled={deleting === s.id}
+                          className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] border border-red-200 text-red-600 bg-red-50/50 hover:bg-red-100 disabled:opacity-40 rounded transition-colors"
+                        >
+                          {deleting === s.id ? '...' : 'Sil'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -259,7 +281,7 @@ export default function SatislarPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Satışı Tamamla'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

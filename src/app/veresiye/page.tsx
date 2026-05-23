@@ -2,21 +2,29 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useMode } from '@/contexts/ModeContext'
 
 export default function VeresiyePage() {
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
   const [sales, setSales] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [paying, setPaying] = useState<string | null>(null)
 
-  useEffect(() => { fetchVeresiye() }, [])
+  useEffect(() => { fetchVeresiye() }, [isAdminMode, cashierLocationId])
 
   async function fetchVeresiye() {
-    const { data } = await supabase
+    let query = supabase
       .from('sales')
       .select('*, customers(name, phone), locations(name), sale_items(quantity, sale_price, products(name))')
       .eq('status', 'veresiye')
       .order('created_at', { ascending: false })
+
+    if (!isAdminMode && cashierLocationId) {
+      query = query.eq('location_id', cashierLocationId)
+    }
+
+    const { data } = await query
     setSales(data ?? [])
     setLoading(false)
   }
@@ -28,6 +36,13 @@ export default function VeresiyePage() {
     fetchVeresiye()
   }
 
+  // Kısmi ödemeli satışlarda notes içinden "Veresiye ₺XX" tutarını parse et
+  function getDebtAmount(sale: any): number {
+    const match = sale.notes?.match(/Veresiye\s+₺([\d.,]+)/)
+    if (match) return parseFloat(match[1].replace(/\./g, '').replace(',', '.')) || 0
+    return Number(sale.total_amount)
+  }
+
   // Group by customer
   const byCustomer: Record<string, { customer: any; sales: any[] }> = {}
   sales.forEach(s => {
@@ -36,14 +51,19 @@ export default function VeresiyePage() {
     byCustomer[cid].sales.push(s)
   })
   const groups = Object.values(byCustomer)
-  const grandTotal = sales.reduce((s, x) => s + Number(x.total_amount), 0)
+  const grandTotal = sales.reduce((s, x) => s + getDebtAmount(x), 0)
 
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-stone-900">Veresiye</h2>
-          <p className="text-stone-400 text-sm mt-1">{sales.length} bekleyen satış</p>
+          <p className="text-stone-400 text-sm mt-1">
+            {sales.length} bekleyen satış
+            {!isAdminMode && cashierLocationName && (
+              <span className="ml-2 text-[#F27A1A] font-semibold">— {cashierLocationName}</span>
+            )}
+          </p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-sm px-4 py-2.5 shadow-sm">
           <span className="text-amber-700 text-[10px] font-semibold uppercase tracking-[0.15em]">Toplam Alacak</span>
@@ -64,7 +84,7 @@ export default function VeresiyePage() {
         <div className="space-y-3">
           {groups.map(group => {
             const customerId = group.sales[0].customer_id ?? '__unknown'
-            const customerTotal = group.sales.reduce((s, x) => s + Number(x.total_amount), 0)
+            const customerTotal = group.sales.reduce((s, x) => s + getDebtAmount(x), 0)
             const isOpen = expanded === customerId
             return (
               <div key={customerId} className="bg-white border border-stone-200 shadow-sm overflow-hidden">
@@ -110,9 +130,17 @@ export default function VeresiyePage() {
                           {s.discount_amount > 0 && (
                             <p className="text-[10px] text-stone-400 mt-0.5">İndirim: ₺{Number(s.discount_amount).toLocaleString('tr-TR')}</p>
                           )}
+                          {s.notes?.includes('Nakit') && s.notes?.includes('Veresiye') && (
+                            <p className="text-[10px] text-amber-600 font-semibold mt-0.5">{s.notes}</p>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0">
-                          <span className="text-sm font-bold text-stone-900 tabular-nums">₺{Number(s.total_amount).toLocaleString('tr-TR')}</span>
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-amber-700 tabular-nums">₺{getDebtAmount(s).toLocaleString('tr-TR')}</span>
+                            {getDebtAmount(s) !== Number(s.total_amount) && (
+                              <p className="text-[10px] text-stone-400">Toplam: ₺{Number(s.total_amount).toLocaleString('tr-TR')}</p>
+                            )}
+                          </div>
                           <button
                             onClick={() => markPaid(s.id)}
                             disabled={paying === s.id}

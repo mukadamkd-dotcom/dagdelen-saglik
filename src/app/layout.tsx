@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${cormorant.variable} ${inter.variable}`}>
         <ModeProvider>
           <Sidebar />
-          <main style={{ marginLeft: '260px', minHeight: '100vh', padding: '44px 40px', backgroundColor: '#F0FDFA' }}>
+          <main style={{ marginLeft: '260px', minHeight: '100vh', padding: '44px 40px', backgroundColor: '#F5F5F5' }}>
             {children}
           </main>
         </ModeProvider>

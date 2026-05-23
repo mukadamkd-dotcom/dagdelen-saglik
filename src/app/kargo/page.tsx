@@ -62,7 +62,7 @@ export default function KargoPage() {
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Kargo Takibi</h2>
           <p className="text-stone-400 text-sm mt-1">Tüm lokasyonların kargo siparişleri</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={() => setShowModal(true)} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Kargo
         </button>
       </div>
@@ -74,7 +74,7 @@ export default function KargoPage() {
             onClick={() => setFilterStatus(s)}
             className={`px-4 py-2 rounded text-[11px] tracking-[0.15em] uppercase font-medium transition-all ${
               filterStatus === s
-                ? 'bg-teal-600 text-white shadow-sm'
+                ? 'bg-[#F27A1A] text-white shadow-sm'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
             }`}
           >
@@ -174,7 +174,7 @@ export default function KargoPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

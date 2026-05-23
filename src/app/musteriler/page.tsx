@@ -1,52 +1,99 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Customer } from '@/types'
 
-const emptyForm = { name: '', phone: '', email: '', address: '', customer_type: 'bireysel', notes: '' }
+const emptyForm = { name: '', phone: '', email: '', address: '', customer_type: 'bireysel', notes: '', referred_by: '' }
+
+interface CustomerWithStats extends Customer {
+  lastSaleDate: string | null
+  daysSinceLast: number | null
+  totalSpent: number
+  totalOrders: number
+}
+
+type Tab = 'tumu' | 'gelmeyenler'
+
+function whatsappLink(phone: string, name: string) {
+  const msg = encodeURIComponent(`Merhaba ${name}, sizi özledik! Dağdelen olarak tekrar görmek isteriz 🙏`)
+  const n = phone.replace(/\D/g, '')
+  const num = n.startsWith('90') ? n : n.startsWith('0') ? '90' + n.slice(1) : '90' + n
+  return `https://wa.me/${num}?text=${msg}`
+}
 
 export default function MusterilerPage() {
-  const [customers, setCustomers] = useState<Customer[]>([])
+  const router = useRouter()
+  const [customers, setCustomers] = useState<CustomerWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [customerSales, setCustomerSales] = useState<any[]>([])
-  const [veresiyeMap, setVeresiyeMap] = useState<Record<string, number>>({})
+  const [tab, setTab] = useState<Tab>('tumu')
+  const [referralCount, setReferralCount] = useState<Record<string, number>>({})
 
   useEffect(() => { fetchCustomers() }, [])
 
   async function fetchCustomers() {
-    const [{ data: custs }, { data: veresiye }] = await Promise.all([
+    const [{ data: custs }, { data: salesData }] = await Promise.all([
       supabase.from('customers').select('*').order('name'),
-      supabase.from('sales').select('customer_id, total_amount').eq('status', 'veresiye'),
+      supabase.from('sales')
+        .select('customer_id, sale_date, total_amount, status')
+        .eq('status', 'tamamlandi')
+        .order('sale_date', { ascending: false }),
     ])
-    setCustomers(custs ?? [])
 
-    const vmap: Record<string, number> = {}
-    ;(veresiye ?? []).forEach((s: any) => {
-      if (!s.customer_id) return
-      vmap[s.customer_id] = (vmap[s.customer_id] ?? 0) + Number(s.total_amount)
+    // Build per-customer stats
+    const statsMap: Record<string, { lastDate: string; total: number; count: number }> = {}
+    ;(salesData ?? []).forEach((s: any) => {
+      const cid = s.customer_id
+      if (!cid) return
+      if (!statsMap[cid]) statsMap[cid] = { lastDate: s.sale_date, total: 0, count: 0 }
+      statsMap[cid].total += Number(s.total_amount)
+      statsMap[cid].count++
     })
-    setVeresiyeMap(vmap)
+
+    const now = Date.now()
+    const enriched: CustomerWithStats[] = (custs ?? []).map((c: any) => {
+      const stats = statsMap[c.id]
+      const daysSinceLast = stats
+        ? Math.floor((now - new Date(stats.lastDate).getTime()) / 86400000)
+        : null
+      return {
+        ...c,
+        lastSaleDate: stats?.lastDate ?? null,
+        daysSinceLast,
+        totalSpent: stats?.total ?? 0,
+        totalOrders: stats?.count ?? 0,
+      }
+    })
+
+    setCustomers(enriched)
+
+    const refCounts: Record<string, number> = {}
+    enriched.forEach(c => {
+      const rb = (c as any).referred_by
+      if (rb) refCounts[rb] = (refCounts[rb] ?? 0) + 1
+    })
+    setReferralCount(refCounts)
     setLoading(false)
   }
 
   function openAdd() { setEditing(null); setForm(emptyForm); setShowModal(true) }
-  function openEdit(c: Customer) {
+  function openEdit(c: Customer, e: React.MouseEvent) {
+    e.stopPropagation()
     setEditing(c)
-    setForm({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', address: c.address ?? '', customer_type: c.customer_type, notes: c.notes ?? '' })
+    setForm({ name: c.name, phone: c.phone ?? '', email: c.email ?? '', address: c.address ?? '', customer_type: c.customer_type, notes: c.notes ?? '', referred_by: (c as any).referred_by ?? '' })
     setShowModal(true)
   }
 
   async function handleSave() {
     if (!form.name) return alert('Müşteri adı zorunludur.')
     setSaving(true)
-    const payload = { name: form.name, phone: form.phone || null, email: form.email || null, address: form.address || null, customer_type: form.customer_type as any, notes: form.notes || null }
+    const payload = { name: form.name, phone: form.phone || null, email: form.email || null, address: form.address || null, customer_type: form.customer_type as any, notes: form.notes || null, referred_by: form.referred_by || null }
     if (editing) { await supabase.from('customers').update(payload).eq('id', editing.id) }
     else { await supabase.from('customers').insert(payload) }
     setSaving(false)
@@ -54,20 +101,25 @@ export default function MusterilerPage() {
     fetchCustomers()
   }
 
-  async function showHistory(c: Customer) {
-    setSelectedCustomer(c)
-    const { data } = await supabase.from('sales').select('*, locations(name), sale_items(quantity, sale_price, products(name))').eq('customer_id', c.id).order('sale_date', { ascending: false })
-    setCustomerSales(data ?? [])
-  }
-
   const filtered = customers.filter(c =>
+    !search.trim() ||
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.phone ?? '').includes(search) ||
     (c.email ?? '').toLowerCase().includes(search.toLowerCase())
   )
-  const totalSpent = customerSales.filter(s => s.status === 'tamamlandi').reduce((sum, s) => sum + Number(s.total_amount), 0)
 
-  const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
+  const gelmeyenler = customers
+    .filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30)
+    .sort((a, b) => (b.daysSinceLast ?? 0) - (a.daysSinceLast ?? 0))
+
+  const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+
+  function daysBadge(days: number | null) {
+    if (days === null) return <span className="text-stone-300 text-xs">—</span>
+    if (days === 0) return <span className="text-[#F27A1A] text-xs font-semibold">Bugün</span>
+    const cls = days > 90 ? 'text-red-600' : days > 60 ? 'text-amber-600' : days > 30 ? 'text-[#F27A1A]' : 'text-stone-500'
+    return <span className={`text-xs font-semibold tabular-nums ${cls}`}>{days} gün önce</span>
+  }
 
   return (
     <div>
@@ -76,119 +128,165 @@ export default function MusterilerPage() {
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Müşteriler</h2>
           <p className="text-stone-400 text-sm mt-1">{customers.length} kayıtlı müşteri</p>
         </div>
-        <button onClick={openAdd} className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={openAdd} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Müşteri
         </button>
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm mb-5 p-4">
-        <input
-          className="w-full border border-stone-200 rounded-sm px-4 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
-          placeholder="İsim, telefon veya e-posta ile ara..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* Tabs */}
+      <div className="flex gap-2 mb-5">
+        {([['tumu', 'Tüm Müşteriler'], ['gelmeyenler', 'Gelmeyenler']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-5 py-2 rounded-sm text-[11px] font-semibold uppercase tracking-[0.12em] border transition-colors ${
+              tab === key ? 'bg-[#F27A1A] text-white border-[#F27A1A]' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
+            }`}
+          >
+            {label}
+            {key === 'gelmeyenler' && customers.filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30).length > 0 && (
+              <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${tab === 'gelmeyenler' ? 'bg-white/20' : 'bg-amber-100 text-amber-700'}`}>
+                {customers.filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30).length}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-stone-50 border-b border-stone-200">
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İsim</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Telefon</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">E-posta</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tip</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Veresiye</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Kayıt Tarihi</th>
-                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center">
-                    <div className="flex items-center justify-center gap-2.5">
-                      <div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" />
-                      <span className="text-stone-400 text-sm">Yükleniyor...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={7} className="px-5 py-12 text-center text-stone-400 text-sm">Müşteri bulunamadı</td></tr>
-              ) : filtered.map(c => (
-                <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
-                  <td className="px-5 py-3.5 font-semibold text-stone-900">{c.name}</td>
-                  <td className="px-5 py-3.5 text-stone-600">{c.phone ?? '-'}</td>
-                  <td className="px-5 py-3.5 text-stone-400">{c.email ?? '-'}</td>
-                  <td className="px-5 py-3.5">
-                    <span className={`px-2.5 py-0.5 rounded-sm text-xs font-medium border ${c.customer_type === 'kurumsal' ? 'border-stone-300 text-stone-700 bg-stone-50/50' : 'border-stone-200 text-stone-500 bg-stone-50/50'}`}>
-                      {c.customer_type === 'kurumsal' ? 'Kurumsal' : 'Bireysel'}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    {veresiyeMap[c.id] ? (
-                      <span className="px-2.5 py-0.5 rounded-sm text-xs font-bold border border-amber-200 text-amber-700 bg-amber-50/50 tabular-nums">
-                        ₺{veresiyeMap[c.id].toLocaleString('tr-TR')}
-                      </span>
-                    ) : (
-                      <span className="text-stone-300 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3.5 text-stone-400">{new Date(c.created_at).toLocaleDateString('tr-TR')}</td>
-                  <td className="px-5 py-3.5 flex gap-3">
-                    <button onClick={() => showHistory(c)} className="text-stone-400 hover:text-stone-700 text-xs font-semibold transition-colors">Geçmiş</button>
-                    <button onClick={() => openEdit(c)} className="text-stone-700 hover:text-stone-900 text-xs font-semibold transition-colors">Düzenle</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Müşteri Geçmişi Modal */}
-      {selectedCustomer && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded border border-stone-200 w-full max-w-2xl p-7 shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="text-xl font-bold text-stone-900">{selectedCustomer.name}</h3>
-                <p className="text-stone-400 text-sm mt-0.5">{selectedCustomer.phone} {selectedCustomer.email}</p>
-              </div>
-              <button onClick={() => setSelectedCustomer(null)} className="text-stone-400 hover:text-stone-600 text-2xl leading-none transition-colors">×</button>
-            </div>
-            <div className="bg-stone-50 border border-stone-200 rounded-sm p-3.5 text-sm mb-5">
-              <span className="text-stone-600">Toplam Harcama: </span>
-              <strong className="text-stone-900">₺{totalSpent.toLocaleString('tr-TR')}</strong>
-              <span className="text-stone-400 ml-2">— {customerSales.length} sipariş</span>
-            </div>
-            {veresiyeMap[selectedCustomer.id] && (
-              <div className="mt-2 bg-amber-50 border border-amber-200 rounded-sm p-3 text-sm">
-                <span className="text-amber-700 font-semibold">Bekleyen Veresiye: </span>
-                <strong className="text-amber-900 tabular-nums">₺{veresiyeMap[selectedCustomer.id].toLocaleString('tr-TR')}</strong>
-              </div>
-            )}
-            {customerSales.length === 0 ? (
-              <p className="text-stone-400 text-sm text-center py-6">Satış geçmişi yok</p>
-            ) : (
-              <div className="space-y-2">
-                {customerSales.map(s => (
-                  <div key={s.id} className="border border-stone-100 rounded-sm p-4 hover:bg-stone-50 transition-colors">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-stone-600">{new Date(s.sale_date).toLocaleDateString('tr-TR')} — {s.locations?.name}</span>
-                      <strong className="text-stone-900 tabular-nums">₺{Number(s.total_amount).toLocaleString('tr-TR')}</strong>
-                      {s.status === 'veresiye' && (
-                        <span className="ml-2 px-2 py-0.5 border border-amber-200 text-amber-700 bg-amber-50/50 text-[10px] font-semibold rounded-sm">Veresiye</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-stone-400 mt-1.5">{(s.sale_items ?? []).map((i: any) => `${i.products?.name} x${i.quantity}`).join(', ')}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* Tüm Müşteriler Tab */}
+      {tab === 'tumu' && (
+        <>
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm mb-5 p-4">
+            <input
+              className="w-full border border-stone-200 rounded-sm px-4 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+              placeholder="İsim, telefon veya e-posta ile ara..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
-        </div>
+
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-200">
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İsim</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Telefon</th>
+                    <th className="px-5 py-3.5 text-right text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Toplam Harcama</th>
+                    <th className="px-5 py-3.5 text-right text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Sipariş</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Son Alışveriş</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={6} className="px-5 py-12 text-center">
+                      <div className="flex items-center justify-center gap-2.5">
+                        <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                        <span className="text-stone-400 text-sm">Yükleniyor...</span>
+                      </div>
+                    </td></tr>
+                  ) : filtered.length === 0 ? (
+                    <tr><td colSpan={6} className="px-5 py-12 text-center text-stone-400 text-sm">Müşteri bulunamadı</td></tr>
+                  ) : filtered.map(c => (
+                    <tr
+                      key={c.id}
+                      onClick={() => router.push(`/musteriler/${c.id}`)}
+                      className="border-b border-stone-100 hover:bg-[#FFF3E8]/40 transition-colors cursor-pointer"
+                    >
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-[#FFE8D0] border border-[#FDBA74] flex items-center justify-center flex-shrink-0">
+                            <span className="text-[#E06010] text-xs font-bold">{c.name.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <span className="font-semibold text-stone-900">{c.name}</span>
+                          {referralCount[c.id] > 0 && (
+                            <span className="px-2 py-0.5 bg-[#FFE8D0] border border-[#FDBA74] text-[#E06010] text-[9px] font-bold rounded-full">
+                              {referralCount[c.id]} referans
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 text-stone-500 font-mono text-xs">{c.phone ?? '—'}</td>
+                      <td className="px-5 py-3.5 text-right font-semibold text-stone-900 tabular-nums">
+                        {c.totalSpent > 0 ? `₺${c.totalSpent.toLocaleString('tr-TR')}` : <span className="text-stone-300">—</span>}
+                      </td>
+                      <td className="px-5 py-3.5 text-right text-stone-500 tabular-nums">{c.totalOrders || '—'}</td>
+                      <td className="px-5 py-3.5">{daysBadge(c.daysSinceLast)}</td>
+                      <td className="px-5 py-3.5">
+                        <button
+                          onClick={e => openEdit(c, e)}
+                          className="text-stone-400 hover:text-stone-700 text-xs font-semibold transition-colors"
+                        >Düzenle</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Gelmeyenler Tab */}
+      {tab === 'gelmeyenler' && (
+        <>
+          <div className="flex items-center gap-3 mb-5">
+            <span className="text-sm font-semibold text-stone-600">Son 30 gündür gelmeyen müşteriler</span>
+            <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{gelmeyenler.length} kişi</span>
+          </div>
+
+          {gelmeyenler.length === 0 ? (
+            <div className="bg-white border border-stone-200 shadow-sm rounded-sm px-5 py-16 text-center">
+              <p className="text-stone-400 text-sm">Son 30 günde gelmeyen müşteri yok</p>
+              <p className="text-stone-300 text-xs mt-1">Harika! Müşterileriniz aktif.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {gelmeyenler.map(c => (
+                <div
+                  key={c.id}
+                  onClick={() => router.push(`/musteriler/${c.id}`)}
+                  className={`bg-white border rounded-sm p-4 flex items-center gap-4 cursor-pointer transition-colors hover:bg-[#FFF3E8]/30 ${
+                    (c.daysSinceLast ?? 0) > 90 ? 'border-red-100' : (c.daysSinceLast ?? 0) > 60 ? 'border-amber-100' : 'border-stone-200'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-full bg-stone-100 border border-stone-200 flex items-center justify-center flex-shrink-0">
+                    <span className="text-stone-500 font-bold">{c.name.charAt(0).toUpperCase()}</span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-stone-900">{c.name}</p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {c.phone && <span className="text-xs text-stone-400 font-mono">{c.phone}</span>}
+                      <span className="text-stone-300 text-xs">·</span>
+                      <span className="text-xs text-stone-400">
+                        {c.totalOrders} sipariş · ₺{c.totalSpent.toLocaleString('tr-TR')} harcama
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-center flex-shrink-0">
+                    <p className={`text-lg font-bold tabular-nums ${(c.daysSinceLast ?? 0) > 90 ? 'text-red-600' : (c.daysSinceLast ?? 0) > 60 ? 'text-amber-600' : 'text-[#F27A1A]'}`}>
+                      {c.daysSinceLast} gün
+                    </p>
+                    <p className="text-[10px] text-stone-400">gelmiyor</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                    {c.phone && (
+                      <a
+                        href={whatsappLink(c.phone, c.name)}
+                        target="_blank" rel="noopener noreferrer"
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-sm text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
+                      >WA</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Ekle/Düzenle Modal */}
@@ -223,12 +321,25 @@ export default function MusterilerPage() {
                 <textarea className={inp} rows={2} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
               </div>
               <div>
+                <label className="block text-sm font-semibold text-stone-700 mb-1.5">Kim Yönlendirdi?</label>
+                <select className={inp} value={form.referred_by} onChange={e => setForm(f => ({ ...f, referred_by: e.target.value }))}>
+                  <option value="">— Seçin (opsiyonel) —</option>
+                  {customers
+                    .filter(c => !editing || c.id !== editing.id)
+                    .map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.phone ? ` · ${c.phone}` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-semibold text-stone-700 mb-1.5">Not</label>
                 <textarea className={inp} rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

@@ -66,11 +66,21 @@ export default function UrunlerPage() {
     fetchProducts()
   }
 
+  // Aynı isimde birden fazla ürün olan isimleri tespit et
+  const nameCounts: Record<string, number> = {}
+  products.forEach(p => { nameCounts[p.name.toLowerCase()] = (nameCounts[p.name.toLowerCase()] ?? 0) + 1 })
+  const duplicateNames = new Set(Object.entries(nameCounts).filter(([, c]) => c > 1).map(([n]) => n))
+
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
+
   const filtered = products
     .filter(p =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.barcode ?? '').includes(search) ||
-      (p.category ?? '').toLowerCase().includes(search.toLowerCase())
+      (showDuplicatesOnly ? duplicateNames.has(p.name.toLowerCase()) : true) &&
+      (
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        (p.barcode ?? '').includes(search) ||
+        (p.category ?? '').toLowerCase().includes(search.toLowerCase())
+      )
     )
     .sort((a, b) =>
       sort === 'stock'
@@ -100,15 +110,37 @@ export default function UrunlerPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-stone-900">Ürünler</h2>
           <p className="text-stone-400 text-sm mt-1">{products.length} ürün kayıtlı</p>
         </div>
-        <button onClick={openAdd} className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={openAdd} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Ürün
         </button>
       </div>
+
+      {duplicateNames.size > 0 && (
+        <div className="mb-4 flex items-center justify-between bg-amber-50 border border-amber-200 rounded px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-600 font-bold text-lg leading-none">⚠</span>
+            <div>
+              <p className="text-amber-800 font-semibold text-sm">
+                {duplicateNames.size} farklı isimde tekrar eden ürün tespit edildi
+              </p>
+              <p className="text-amber-600 text-xs mt-0.5">
+                {[...duplicateNames].map(n => products.find(p => p.name.toLowerCase() === n)?.name).join(', ')}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowDuplicatesOnly(v => !v)}
+            className={`px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-colors ${showDuplicatesOnly ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}
+          >
+            {showDuplicatesOnly ? 'Tümünü Göster' : 'Sadece Tekrarları Göster'}
+          </button>
+        </div>
+      )}
 
       <div className="bg-white border border-stone-200 shadow-sm mb-5 p-4">
         <div className="flex gap-3 items-center mb-3">
@@ -141,11 +173,11 @@ export default function UrunlerPage() {
           <div className="flex border border-stone-200 rounded-sm overflow-hidden flex-shrink-0">
             <button
               onClick={() => setSort('name')}
-              className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors ${sort === 'name' ? 'bg-teal-600 text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
+              className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors ${sort === 'name' ? 'bg-[#F27A1A] text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
             >İsme Göre</button>
             <button
               onClick={() => setSort('stock')}
-              className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors border-l border-stone-200 ${sort === 'stock' ? 'bg-teal-600 text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
+              className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors border-l border-stone-200 ${sort === 'stock' ? 'bg-[#F27A1A] text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
             >Stoğa Göre</button>
           </div>
         </div>
@@ -183,7 +215,7 @@ export default function UrunlerPage() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={10} className="px-5 py-12 text-center text-stone-400 text-sm">Ürün bulunamadı</td></tr>
               ) : filtered.map(p => (
-                <tr key={p.id} className={`border-b border-stone-50 transition-colors ${highlighted === p.id ? 'bg-stone-100 ring-2 ring-stone-300 ring-inset' : 'hover:bg-stone-50/70'}`}>
+                <tr key={p.id} className={`border-b border-stone-50 transition-colors ${highlighted === p.id ? 'bg-stone-100 ring-2 ring-stone-300 ring-inset' : duplicateNames.has(p.name.toLowerCase()) ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-stone-50/70'}`}>
                   <td className="px-5 py-3">
                     <div className="relative group w-10 h-10">
                       {p.image_url ? (
@@ -205,7 +237,12 @@ export default function UrunlerPage() {
                       >Edit</button>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 font-semibold text-stone-800">{p.name}</td>
+                  <td className="px-5 py-3.5">
+                    <p className="font-semibold text-stone-800">{p.name}</p>
+                    {duplicateNames.has(p.name.toLowerCase()) && (
+                      <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">⚠ Tekrar</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3.5 text-stone-400 font-mono text-xs">{p.barcode ?? '-'}</td>
                   <td className="px-5 py-3.5 text-stone-500">{p.category ?? '-'}</td>
                   <td className="px-5 py-3.5 text-stone-500">{p.unit}</td>
@@ -287,7 +324,7 @@ export default function UrunlerPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
@@ -328,7 +365,7 @@ export default function UrunlerPage() {
             )}
 
             <div className="flex gap-2">
-              <button onClick={() => saveEditImg()} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">Kaydet</button>
+              <button onClick={() => saveEditImg()} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">Kaydet</button>
               <button onClick={() => saveEditImg(true)} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2.5 rounded text-xs font-semibold transition-colors">Sil</button>
               <button onClick={() => setEditImg(null)} className="bg-stone-100 hover:bg-stone-200 text-stone-700 px-4 py-2.5 rounded text-xs font-semibold transition-colors">İptal</button>
             </div>
