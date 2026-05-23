@@ -212,7 +212,7 @@ export default function TakaslarPage() {
     setInCart(prev => {
       const ex = prev.find(i => i.product.id === product.id)
       if (ex) return prev.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i)
-      return [...prev, { product, quantity: 1, unit_price: product.purchase_price || product.standard_price }]
+      return [...prev, { product, quantity: 1, unit_price: product.purchase_price || product.standard_price, batch_id: null, expiry_date: null }]
     })
     setInSearch('')
     setTimeout(() => inSearchRef.current?.focus(), 0)
