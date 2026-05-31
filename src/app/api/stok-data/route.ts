@@ -3,18 +3,36 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
+async function fetchAllInventory() {
+  const rows: { product_id: string; location_id: string; quantity: number; min_stock_alert: number }[] = []
+  const batchSize = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from('inventory')
+      .select('product_id, location_id, quantity, min_stock_alert')
+      .range(from, from + batchSize - 1)
+    if (error) return { data: null, error }
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < batchSize) break
+    from += batchSize
+  }
+  return { data: rows, error: null }
+}
+
 export async function GET() {
   const [
     { data: locations, error: e1 },
     { data: products, error: e2 },
-    { data: inventory, error: e3 },
     { data: miadData, error: e4 },
   ] = await Promise.all([
     supabaseAdmin.from('locations').select('id, name').order('name'),
     supabaseAdmin.from('products').select('id, name, barcode, category, unit, image_url').eq('is_active', true).order('name'),
-    supabaseAdmin.from('inventory').select('product_id, location_id, quantity, min_stock_alert').limit(10000),
     supabaseAdmin.from('stock_movements').select('product_id, to_location_id, notes, quantity, created_at').like('notes', 'SAYIM_MIAD:%').order('created_at', { ascending: false }).limit(2000),
   ])
+
+  const { data: inventory, error: e3 } = await fetchAllInventory()
 
   if (e1 || e2 || e3 || e4) {
     return NextResponse.json(
