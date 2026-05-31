@@ -84,7 +84,7 @@ export default function StokPage() {
   async function fetchStok(): Promise<StokData | null> {
     setLoading(true)
     try {
-      const res = await fetch('/api/stok-data')
+      const res = await fetch('/api/stok-data', { cache: 'no-store' })
       const json = await res.json()
       if (json.error) throw new Error(json.error)
       setStokData(json)
