@@ -299,7 +299,7 @@ export default function ImportPage() {
             ) : (
               <button
                 onClick={handleScanAllImages}
-                className="w-full bg-[#F27A1A] hover:bg-[#E06010] text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase transition-colors"
+                className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 rounded text-[11px] tracking-[0.2em] uppercase transition-colors"
               >
                 Görselleri Ara ve Yükle
               </button>
@@ -370,7 +370,7 @@ export default function ImportPage() {
           <div className="flex gap-3">
             <button
               onClick={handleImport}
-              className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase transition-colors shadow-sm"
+              className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase transition-colors shadow-sm"
             >
               {rawRows.length} Ürünü İçe Aktar
             </button>
@@ -438,7 +438,7 @@ export default function ImportPage() {
             </div>
           </div>
           <div className="flex gap-3">
-            <a href="/stok" className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase transition-colors text-center shadow-sm">
+            <a href="/stok" className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase transition-colors text-center shadow-sm">
               Stok Sayfasına Git
             </a>
             <button

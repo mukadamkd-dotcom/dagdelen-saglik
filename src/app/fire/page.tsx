@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useMode } from '@/contexts/ModeContext'
 import type { Product, Location } from '@/types'
 
 const emptyForm = { location_id: '', product_id: '', quantity: '', loss_type: 'fire', description: '' }
 const lossLabel: Record<string, string> = { kargo_hasari: 'Kargo Hasarı', iade: 'İade', bozulma: 'Bozulma', fire: 'Fire', diger: 'Diğer' }
 const lossBadge: Record<string, string> = {
-  kargo_hasari: 'border-[#FDBA74] text-[#E06010] bg-[#FFF3E8]/50',
+  kargo_hasari: 'border-[#FDBA74] text-[#6D28D9] bg-[#FFF3E8]/50',
   iade: 'border-stone-300 text-stone-600 bg-stone-50/50',
   bozulma: 'border-red-200 text-red-600 bg-red-50/50',
   fire: 'border-stone-200 text-stone-500 bg-stone-50/50',
@@ -15,6 +16,7 @@ const lossBadge: Record<string, string> = {
 }
 
 export default function FirePage() {
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
   const [losses, setLosses] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -38,14 +40,28 @@ export default function FirePage() {
   }
 
   async function handleSave() {
-    if (!form.location_id || !form.product_id || !form.quantity) return alert('Lokasyon, ürün ve miktar zorunludur.')
+    const locId = isAdminMode ? form.location_id : (cashierLocationId ?? '')
+    if (!locId || !form.product_id || !form.quantity) return alert('Lokasyon, ürün ve miktar zorunludur.')
     setSaving(true)
+    const qty = Number(form.quantity)
 
-    await supabase.from('losses').insert({ location_id: form.location_id, product_id: form.product_id, quantity: Number(form.quantity), loss_type: form.loss_type, description: form.description || null })
+    await supabase.from('losses').insert({ location_id: locId, product_id: form.product_id, quantity: qty, loss_type: form.loss_type, description: form.description || null })
 
-    const { data: inv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', form.location_id).single()
-    if (inv) await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - Number(form.quantity)) }).eq('id', inv.id)
-    await supabase.from('stock_movements').insert({ product_id: form.product_id, from_location_id: form.location_id, quantity: Number(form.quantity), movement_type: 'fire', notes: form.description || null })
+    // Ana stok düş
+    const { data: inv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', locId).maybeSingle()
+    if (inv) await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - qty) }).eq('id', inv.id)
+
+    // Batch stok düş (FIFO — önce en eski miad)
+    let remaining = qty
+    const { data: batches } = await supabase.from('inventory_batches').select('id, quantity').eq('product_id', form.product_id).eq('location_id', locId).gt('quantity', 0).order('expiry_date')
+    for (const b of (batches ?? [])) {
+      if (remaining <= 0) break
+      const take = Math.min(Number(b.quantity), remaining)
+      await supabase.from('inventory_batches').update({ quantity: Number(b.quantity) - take }).eq('id', b.id)
+      remaining -= take
+    }
+
+    await supabase.from('stock_movements').insert({ product_id: form.product_id, from_location_id: locId, quantity: qty, movement_type: 'fire', notes: form.description || null })
 
     setSaving(false)
     setShowModal(false)
@@ -67,7 +83,7 @@ export default function FirePage() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
+          className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
         >
           + Fire Kaydı
         </button>
@@ -87,8 +103,7 @@ export default function FirePage() {
         ))}
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
@@ -128,7 +143,6 @@ export default function FirePage() {
               ))}
             </tbody>
           </table>
-        </div>
       </div>
 
       {showModal && (
@@ -138,10 +152,14 @@ export default function FirePage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-stone-700 mb-1.5">Lokasyon *</label>
-                <select className={inp} value={form.location_id} onChange={e => setForm(f => ({ ...f, location_id: e.target.value }))}>
-                  <option value="">Seçin...</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                {isAdminMode ? (
+                  <select className={inp} value={form.location_id} onChange={e => setForm(f => ({ ...f, location_id: e.target.value }))}>
+                    <option value="">Seçin...</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                ) : (
+                  <div className="border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm text-stone-700 bg-stone-50 font-medium">{cashierLocationName}</div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-stone-700 mb-1.5">Ürün *</label>
@@ -172,7 +190,7 @@ export default function FirePage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Fire Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

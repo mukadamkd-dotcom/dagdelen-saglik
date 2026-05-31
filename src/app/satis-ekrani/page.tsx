@@ -61,6 +61,7 @@ export default function SatisEkraniPage() {
     product: Product
     batches: { id: string; expiry_date: string; quantity: number }[]
   } | null>(null)
+  const [manualMiadDate, setManualMiadDate] = useState('')
   const [receipt, setReceipt] = useState<{
     items: CartItem[]
     total: number
@@ -126,18 +127,24 @@ export default function SatisEkraniPage() {
     : products
 
   async function addToCart(product: Product) {
-    if (!locationId) { addToCartWithBatch(product, null, null); return }
-    const { data: batches } = await supabase
-      .from('inventory_batches').select('id, expiry_date, quantity')
-      .eq('product_id', product.id).eq('location_id', locationId).gt('quantity', 0).order('expiry_date')
-    const avail = batches ?? []
-    if (avail.length === 0) { addToCartWithBatch(product, null, null) }
-    else if (avail.length === 1) { addToCartWithBatch(product, avail[0].id, avail[0].expiry_date) }
-    else { setBatchSelector({ product, batches: avail }) }
+    if (!locationId) { setManualMiadDate(''); setBatchSelector({ product, batches: [] }); return }
+    const { data: miadData } = await supabase
+      .from('stock_movements').select('notes, quantity, created_at')
+      .like('notes', 'SAYIM_MIAD:%').eq('to_location_id', locationId).eq('product_id', product.id)
+      .order('created_at', { ascending: false }).limit(50)
+    const seen = new Set<string>()
+    const avail: { id: string; expiry_date: string; quantity: number }[] = []
+    ;(miadData ?? []).forEach((m: any) => {
+      const exp = m.notes.replace('SAYIM_MIAD:', '')
+      if (!seen.has(exp) && Number(m.quantity) > 0) { seen.add(exp); avail.push({ id: exp, expiry_date: exp, quantity: Number(m.quantity) }) }
+    })
+    avail.sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
+    if (avail.length === 1) { addToCartWithBatch(product, null, avail[0].expiry_date) }
+    else { setManualMiadDate(''); setBatchSelector({ product, batches: avail }) }
   }
 
   function addToCartWithBatch(product: Product, batchId: string | null, expiryDate: string | null) {
-    const cartKey = `${product.id}_${batchId ?? 'none'}`
+    const cartKey = `${product.id}_${expiryDate ?? 'none'}`
     setCart(prev => {
       const existing = prev.find(i => i.cartKey === cartKey)
       if (existing) return prev.map(i => i.cartKey === cartKey ? { ...i, quantity: i.quantity + 1 } : i)
@@ -196,8 +203,9 @@ function clearCart() {
     (customerMode === 'eski' && !!customerId) ||
     (customerMode === 'yeni' && !!newCustomerName.trim())
   const veresiyeAmt = splitToVeresiye ? total - cashVal : 0
+  const allHaveExpiry = cart.every(i => !!i.expiry_date)
   const canComplete = !completing && !!payment && !!locationId && cart.length > 0 && !hasMinPriceError &&
-    customerValid && (payment !== 'nakit' || cashVal >= total || (splitToVeresiye && cashVal > 0))
+    customerValid && allHaveExpiry && (payment !== 'nakit' || cashVal >= total || (splitToVeresiye && cashVal > 0))
 
   async function completeSale() {
     if (!canComplete) return
@@ -208,8 +216,10 @@ function clearCart() {
       if (customerMode === 'eski') {
         resolvedCustomerId = customerId
       } else if (customerMode === 'yeni') {
+        const newCustPayload: any = { name: newCustomerName.trim(), phone: newCustomerPhone.trim() || null }
+        if (locationId) newCustPayload.location_id = locationId
         const { data: newCust } = await supabase.from('customers')
-          .insert({ name: newCustomerName.trim(), phone: newCustomerPhone.trim() || null })
+          .insert(newCustPayload)
           .select('id').single()
         resolvedCustomerId = newCust?.id ?? null
       }
@@ -245,13 +255,8 @@ function clearCart() {
           batch_id: item.batch_id || null,
         })
 
-        if (item.batch_id) {
-          const { data: batch } = await supabase.from('inventory_batches').select('quantity').eq('id', item.batch_id).single()
-          if (batch) await supabase.from('inventory_batches').update({ quantity: Math.max(0, Number(batch.quantity) - item.quantity) }).eq('id', item.batch_id)
-        }
-
         const { data: inv } = await supabase.from('inventory').select('id, quantity')
-          .eq('product_id', item.product.id).eq('location_id', locationId).single()
+          .eq('product_id', item.product.id).eq('location_id', locationId).maybeSingle()
         if (inv) {
           await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - item.quantity) }).eq('id', inv.id)
         }
@@ -263,6 +268,18 @@ function clearCart() {
           movement_type: 'satis',
           reference_id: sale.id,
         })
+
+        if (item.expiry_date) {
+          const { data: lastMiad } = await supabase.from('stock_movements').select('quantity')
+            .eq('product_id', item.product.id).eq('to_location_id', locationId).eq('notes', `SAYIM_MIAD:${item.expiry_date}`)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle()
+          const prevBatchQty = Number(lastMiad?.quantity ?? item.quantity)
+          await supabase.from('stock_movements').insert({
+            product_id: item.product.id, to_location_id: locationId,
+            quantity: Math.max(0, prevBatchQty - item.quantity),
+            movement_type: 'satis', notes: `SAYIM_MIAD:${item.expiry_date}`,
+          })
+        }
       }
 
       setReceipt({
@@ -399,7 +416,7 @@ function clearCart() {
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {inCart ? (
-                          <span className="bg-[#F27A1A] text-white text-[10px] font-bold px-2.5 py-1 rounded-sm tabular-nums">
+                          <span className="bg-[#7C3AED] text-white text-[10px] font-bold px-2.5 py-1 rounded-sm tabular-nums">
                             {inCartQty} adet
                           </span>
                         ) : (
@@ -591,10 +608,15 @@ function clearCart() {
                 </div>
 
                 {/* Proceed */}
+                {cart.length > 0 && !allHaveExpiry && (
+                  <p className="text-red-500 text-[10px] font-semibold text-center bg-red-50 border border-red-100 rounded-sm px-3 py-2">
+                    Miad tarihi seçilmemiş ürün var — ürüne tıklayın ve miad seçin
+                  </p>
+                )}
                 <button
                   onClick={() => setStep('payment')}
-                  disabled={hasMinPriceError || discountAmt > maxDiscount}
-                  className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
+                  disabled={hasMinPriceError || discountAmt > maxDiscount || !allHaveExpiry}
+                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
                 >
                   Ödemeye Geç →
                 </button>
@@ -645,7 +667,7 @@ function clearCart() {
               <div className="border-t border-stone-100 px-4 py-4 space-y-3.5">
 
               {/* Total prominent display */}
-              <div className="bg-[#E06010] text-white rounded-sm px-4 py-3 flex justify-between items-center">
+              <div className="bg-[#6D28D9] text-white rounded-sm px-4 py-3 flex justify-between items-center">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">Ödenecek Tutar</span>
                 <span className="text-2xl font-bold tabular-nums">₺{total.toLocaleString('tr-TR')}</span>
               </div>
@@ -665,7 +687,7 @@ function clearCart() {
                       onClick={() => { setCustomerMode(m.key); setCustomerId(''); setCustomerSearch('') }}
                       className={`py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] rounded-sm border transition-all ${
                         customerMode === m.key
-                          ? 'bg-[#F27A1A] text-white border-[#F27A1A]'
+                          ? 'bg-[#7C3AED] text-white border-[#7C3AED]'
                           : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
                       }`}
                     >{m.label}</button>
@@ -719,12 +741,12 @@ function clearCart() {
                         </div>
                         {referrerName && (
                           <div className="mt-1.5 bg-[#FFF3E8] border border-[#FDBA74] rounded-sm px-3 py-2">
-                            <p className="text-[10px] font-bold text-[#E06010] uppercase tracking-[0.1em]">Referans Müşteri</p>
-                            <p className="text-xs text-[#F27A1A] mt-0.5">
+                            <p className="text-[10px] font-bold text-[#6D28D9] uppercase tracking-[0.1em]">Referans Müşteri</p>
+                            <p className="text-xs text-[#7C3AED] mt-0.5">
                               <span className="font-semibold">{referrerName}</span> yönlendirdi
                             </p>
                             {isFirstPurchase && (
-                              <p className="text-[10px] text-[#F27A1A] mt-1 font-semibold">
+                              <p className="text-[10px] text-[#7C3AED] mt-1 font-semibold">
                                 ★ İlk alışveriş — ₺10 hoşgeldin indirimi uygula · {referrerName} ₺20 çek kazandı
                               </p>
                             )}
@@ -772,7 +794,7 @@ function clearCart() {
                       onClick={() => { setPayment(m); if (m !== 'nakit') { setCashReceived(''); setSplitToVeresiye(false) } }}
                       className={`py-3 text-[10px] font-semibold uppercase tracking-[0.12em] rounded-sm border transition-all ${
                         payment === m
-                          ? m === 'veresiye' ? 'bg-amber-600 text-white border-amber-600' : 'bg-[#F27A1A] text-white border-[#F27A1A]'
+                          ? m === 'veresiye' ? 'bg-amber-600 text-white border-amber-600' : 'bg-[#7C3AED] text-white border-[#7C3AED]'
                           : 'bg-white text-stone-600 border-stone-200 hover:border-stone-400 hover:text-stone-800'
                       }`}
                     >
@@ -878,7 +900,7 @@ function clearCart() {
               <button
                 onClick={completeSale}
                 disabled={!canComplete}
-                className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[12px] tracking-[0.3em] uppercase font-bold transition-all shadow-md"
+                className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[12px] tracking-[0.3em] uppercase font-bold transition-all shadow-md"
               >
                 {completing ? 'Kaydediliyor...' : splitToVeresiye ? `Nakit ₺${cashVal.toLocaleString('tr-TR')} + Veresiye ₺${veresiyeAmt.toLocaleString('tr-TR')}` : 'Satışı Tamamla'}
               </button>
@@ -893,30 +915,58 @@ function clearCart() {
           <div className="bg-white rounded border border-stone-200 w-full max-w-sm p-6 shadow-lg">
             <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.2em] mb-1">Miad Seçimi</p>
             <h3 className="text-stone-900 font-bold text-lg mb-1 leading-tight">{batchSelector.product.name}</h3>
-            <p className="text-stone-400 text-xs mb-4">Hangi miaddan satılsın?</p>
-            <div className="space-y-2 mb-4">
-              {batchSelector.batches.map(b => {
-                const d = Math.floor((new Date(b.expiry_date).getTime() - Date.now()) / 86400000)
-                return (
-                  <button
-                    key={b.id}
-                    onClick={() => { addToCartWithBatch(batchSelector.product, b.id, b.expiry_date); setBatchSelector(null) }}
-                    className={`w-full flex items-center justify-between px-4 py-3 border rounded-sm text-left transition-all hover:border-stone-500 ${d < 0 ? 'border-red-200 bg-red-50' : d <= 30 ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white hover:bg-stone-50'}`}
-                  >
-                    <div>
-                      <p className={`text-sm font-bold ${d < 0 ? 'text-red-600' : d <= 30 ? 'text-amber-700' : 'text-stone-900'}`}>
-                        {new Date(b.expiry_date).toLocaleDateString('tr-TR')}
-                      </p>
-                      <p className="text-[10px] text-stone-400 mt-0.5">
-                        {d < 0 ? 'SÜRESİ DOLMUŞ' : d === 0 ? 'Bugün son' : `${d} gün kaldı`}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold text-stone-600 tabular-nums">{b.quantity} adet</p>
-                  </button>
-                )
-              })}
+            <p className="text-stone-400 text-xs mb-4">Hangi miaddan satılsın? <span className="text-red-500 font-semibold">Miad seçimi zorunludur.</span></p>
+            {batchSelector.batches.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {batchSelector.batches.map(b => {
+                  const d = Math.floor((new Date(b.expiry_date).getTime() - Date.now()) / 86400000)
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => { addToCartWithBatch(batchSelector.product, null, b.expiry_date); setBatchSelector(null); setManualMiadDate('') }}
+                      className={`w-full flex items-center justify-between px-4 py-3 border rounded-sm text-left transition-all hover:border-stone-500 ${d < 0 ? 'border-red-200 bg-red-50' : d <= 30 ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white hover:bg-stone-50'}`}
+                    >
+                      <div>
+                        <p className={`text-sm font-bold ${d < 0 ? 'text-red-600' : d <= 30 ? 'text-amber-700' : 'text-stone-900'}`}>
+                          {new Date(b.expiry_date).toLocaleDateString('tr-TR')}
+                        </p>
+                        <p className="text-[10px] text-stone-400 mt-0.5">
+                          {d < 0 ? 'SÜRESİ DOLMUŞ' : d === 0 ? 'Bugün son' : `${d} gün kaldı`}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-stone-600 tabular-nums">{b.quantity} adet</p>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            {batchSelector.batches.length === 0 && (
+              <p className="text-amber-600 text-xs font-semibold bg-amber-50 border border-amber-100 rounded-sm px-3 py-2 mb-3">
+                Bu ürün için kayıtlı miad yok — tarihi manuel girin.
+              </p>
+            )}
+            <div className={batchSelector.batches.length > 0 ? 'border-t border-stone-100 pt-3' : ''}>
+              <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1.5">
+                {batchSelector.batches.length > 0 ? 'Veya farklı miad girin' : 'Miad Tarihi'}
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={manualMiadDate}
+                  onChange={e => setManualMiadDate(e.target.value)}
+                  className="flex-1 border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-stone-400 transition-colors"
+                  autoFocus={batchSelector.batches.length === 0}
+                />
+                <button
+                  onClick={() => { if (manualMiadDate) { addToCartWithBatch(batchSelector.product, null, manualMiadDate); setBatchSelector(null); setManualMiadDate('') } }}
+                  disabled={!manualMiadDate}
+                  className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 text-white px-4 py-2 rounded-sm text-xs font-semibold transition-colors"
+                >
+                  Ekle
+                </button>
+              </div>
             </div>
-            <button onClick={() => setBatchSelector(null)} className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 py-2.5 rounded-sm text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+            <button onClick={() => setBatchSelector(null)} className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 py-2.5 rounded-sm text-[11px] tracking-[0.2em] uppercase font-medium transition-colors mt-3">
               İptal
             </button>
           </div>
@@ -972,7 +1022,7 @@ function clearCart() {
 
             <button
               onClick={() => { setReceipt(null); setTimeout(() => searchRef.current?.focus(), 0) }}
-              className="w-full bg-[#F27A1A] hover:bg-[#E06010] text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
+              className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
             >
               Yeni Satış
             </button>

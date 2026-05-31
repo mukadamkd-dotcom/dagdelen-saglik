@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 interface ProductRow {
   id: string
   name: string
+  barcode: string | null
   image_url: string | null
   current_standard: number
   current_min: number
@@ -25,12 +26,13 @@ export default function FiyatPage() {
   async function fetchProducts() {
     const { data } = await supabase
       .from('products')
-      .select('id, name, image_url, standard_price, min_sale_price')
+      .select('id, name, barcode, image_url, standard_price, min_sale_price')
       .eq('is_active', true)
       .order('name')
     setRows((data ?? []).map((p: any) => ({
       id: p.id,
       name: p.name,
+      barcode: p.barcode ?? null,
       image_url: p.image_url ?? null,
       current_standard: Number(p.standard_price),
       current_min: Number(p.min_sale_price),
@@ -100,7 +102,7 @@ export default function FiyatPage() {
           <button
             onClick={saveAll}
             disabled={saving || changedCount === 0}
-            className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
+            className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
           >
             {saving ? 'Kaydediliyor...' : `Kaydet${changedCount > 0 ? ` (${changedCount})` : ''}`}
           </button>
@@ -117,7 +119,7 @@ export default function FiyatPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Ürün ara..."
-              className="w-full border border-stone-200 rounded-sm pl-9 pr-4 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+              className="w-full border border-stone-200 rounded-sm pl-9 pr-4 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors"
             />
           </div>
 
@@ -139,13 +141,13 @@ export default function FiyatPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-100">
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] w-14">Görsel</th>
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Ürün Adı</th>
+                <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Barkod</th>
                 <th className="px-5 py-3.5 text-right text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Mevcut Satış ₺</th>
                 <th className="px-5 py-3.5 text-right text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Mevcut Min ₺</th>
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Yeni Satış Fiyatı</th>
@@ -155,23 +157,23 @@ export default function FiyatPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center">
+                  <td colSpan={7} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
-                      <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
                     </div>
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-stone-400 text-sm">Ürün bulunamadı</td>
+                  <td colSpan={7} className="px-5 py-10 text-center text-stone-400 text-sm">Ürün bulunamadı</td>
                 </tr>
               ) : filtered.map(r => {
                 const changedRow =
                   (r.newStandard.trim() !== '' && parseFloat(r.newStandard) > 0) ||
                   (r.newMin.trim() !== '' && parseFloat(r.newMin) > 0)
                 return (
-                  <tr key={r.id} className={`border-b border-stone-50 transition-colors ${changedRow ? 'bg-[#FFF3E8]/50' : 'hover:bg-stone-50/60'}`}>
+                  <tr key={r.id} className={`border-b border-stone-50 transition-colors ${changedRow ? 'bg-purple-50/50' : 'hover:bg-stone-50/60'}`}>
                     <td className="px-5 py-3">
                       <div className="w-10 h-10 bg-stone-100 rounded-sm flex items-center justify-center overflow-hidden">
                         {r.image_url
@@ -183,6 +185,7 @@ export default function FiyatPage() {
                     <td className="px-5 py-3">
                       <p className="font-semibold text-stone-800">{r.name}</p>
                     </td>
+                    <td className="px-5 py-3 text-stone-400 font-mono text-xs">{r.barcode ?? '—'}</td>
                     <td className="px-5 py-3 text-right">
                       <span className="text-stone-500 tabular-nums text-sm font-semibold">
                         ₺{r.current_standard.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
@@ -194,7 +197,7 @@ export default function FiyatPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3">
-                      <div className={`flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${r.newStandard && parseFloat(r.newStandard) > 0 ? 'border-orange-400' : 'border-stone-200 focus-within:border-orange-400'}`}>
+                      <div className={`flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${r.newStandard && parseFloat(r.newStandard) > 0 ? 'border-[#7C3AED]' : 'border-stone-200 focus-within:border-[#7C3AED]'}`}>
                         <span className="pl-3 text-stone-400 text-xs flex-shrink-0">₺</span>
                         <input
                           type="number"
@@ -208,7 +211,7 @@ export default function FiyatPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3">
-                      <div className={`flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${r.newMin && parseFloat(r.newMin) > 0 ? 'border-orange-400' : 'border-stone-200 focus-within:border-orange-400'}`}>
+                      <div className={`flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${r.newMin && parseFloat(r.newMin) > 0 ? 'border-[#7C3AED]' : 'border-stone-200 focus-within:border-[#7C3AED]'}`}>
                         <span className="pl-3 text-stone-400 text-xs flex-shrink-0">₺</span>
                         <input
                           type="number"
@@ -226,7 +229,6 @@ export default function FiyatPage() {
               })}
             </tbody>
           </table>
-        </div>
       </div>
 
       {changedCount > 0 && (
@@ -234,7 +236,7 @@ export default function FiyatPage() {
           <button
             onClick={saveAll}
             disabled={saving}
-            className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white px-8 py-3.5 rounded shadow-lg text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
+            className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white px-8 py-3.5 rounded shadow-lg text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
           >
             {saving ? 'Kaydediliyor...' : `${changedCount} Ürünü Kaydet`}
           </button>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useMode } from '@/contexts/ModeContext'
 import type { Product, Location } from '@/types'
 
 const emptyForm = { product_id: '', from_location_id: '', to_location_id: '', quantity: '', transfer_price: '', notes: '' }
@@ -12,6 +13,7 @@ const statusMap: Record<string, { border: string; text: string; bg: string }> = 
 }
 
 export default function TransferlerPage() {
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
   const [transfers, setTransfers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -23,8 +25,14 @@ export default function TransferlerPage() {
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
+    const tQuery = supabase
+      .from('transfers')
+      .select('*, products(name, unit), from_location:locations!transfers_from_location_id_fkey(name), to_location:locations!transfers_to_location_id_fkey(name)')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
     const [{ data: t }, { data: p }, { data: l }] = await Promise.all([
-      supabase.from('transfers').select('*, products(name, unit), from_location:locations!transfers_from_location_id_fkey(name), to_location:locations!transfers_to_location_id_fkey(name)').order('created_at', { ascending: false }).limit(50),
+      tQuery,
       supabase.from('products').select('id, name, unit, purchase_price').eq('is_active', true).order('name'),
       supabase.from('locations').select('*').order('name'),
     ])
@@ -48,14 +56,15 @@ export default function TransferlerPage() {
     const price = Number(form.transfer_price)
     const total = qty * price
 
-    const { data: fromInv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', form.from_location_id).single()
+    const { data: fromInv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', form.from_location_id).maybeSingle()
     if (!fromInv || fromInv.quantity < qty) { setSaving(false); return alert('Yeterli stok yok.') }
 
-    const { data: transfer } = await supabase.from('transfers').insert({ product_id: form.product_id, from_location_id: form.from_location_id, to_location_id: form.to_location_id, quantity: qty, transfer_price: price, notes: form.notes || null }).select().single()
+    const { data: transfer, error: transferErr } = await supabase.from('transfers').insert({ product_id: form.product_id, from_location_id: form.from_location_id, to_location_id: form.to_location_id, quantity: qty, transfer_price: price, notes: form.notes || null }).select().single()
+    if (transferErr || !transfer) { setSaving(false); return alert('Transfer kaydedilemedi: ' + (transferErr?.message ?? 'Bilinmeyen hata')) }
 
     await supabase.from('inventory').update({ quantity: Number(fromInv.quantity) - qty }).eq('id', fromInv.id)
 
-    const { data: toInv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', form.to_location_id).single()
+    const { data: toInv } = await supabase.from('inventory').select('id, quantity').eq('product_id', form.product_id).eq('location_id', form.to_location_id).maybeSingle()
     if (toInv) {
       await supabase.from('inventory').update({ quantity: Number(toInv.quantity) + qty }).eq('id', toInv.id)
     } else {
@@ -73,20 +82,28 @@ export default function TransferlerPage() {
 
   const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
 
+  const visibleTransfers = isAdminMode
+    ? transfers
+    : transfers.filter(t => t.from_location_id === cashierLocationId || t.to_location_id === cashierLocationId)
+
+  function openModal() {
+    setForm({ ...emptyForm, from_location_id: cashierLocationId ?? '' })
+    setShowModal(true)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Lokasyonlar Arası Transfer</h2>
-          <p className="text-stone-400 text-sm mt-1">Transfer yapıldığında iç borç otomatik oluşur</p>
+          <p className="text-stone-400 text-sm mt-1">Transfer yapıldığında stok otomatik güncellenir ve iç borç oluşur</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={openModal} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Transfer
         </button>
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
@@ -110,9 +127,9 @@ export default function TransferlerPage() {
                     </div>
                   </td>
                 </tr>
-              ) : transfers.length === 0 ? (
+              ) : visibleTransfers.length === 0 ? (
                 <tr><td colSpan={8} className="px-5 py-12 text-center text-stone-400 text-sm">Henüz transfer yapılmamış</td></tr>
-              ) : transfers.map(t => {
+              ) : visibleTransfers.map(t => {
                 const badge = statusMap[t.status]
                 return (
                   <tr key={t.id} className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
@@ -133,7 +150,6 @@ export default function TransferlerPage() {
               })}
             </tbody>
           </table>
-        </div>
       </div>
 
       {showModal && (
@@ -151,16 +167,22 @@ export default function TransferlerPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-semibold text-stone-700 mb-1.5">Gönderen *</label>
-                  <select className={inp} value={form.from_location_id} onChange={e => setForm(f => ({ ...f, from_location_id: e.target.value }))}>
-                    <option value="">Seçin...</option>
-                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
+                  {isAdminMode ? (
+                    <select className={inp} value={form.from_location_id} onChange={e => setForm(f => ({ ...f, from_location_id: e.target.value }))}>
+                      <option value="">Seçin...</option>
+                      {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  ) : (
+                    <div className="border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm text-stone-700 bg-stone-50 font-medium">
+                      {cashierLocationName}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-stone-700 mb-1.5">Alan *</label>
                   <select className={inp} value={form.to_location_id} onChange={e => setForm(f => ({ ...f, to_location_id: e.target.value }))}>
                     <option value="">Seçin...</option>
-                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    {locations.filter(l => l.id !== (cashierLocationId ?? form.from_location_id)).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -187,7 +209,7 @@ export default function TransferlerPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Transferi Yap'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

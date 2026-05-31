@@ -25,6 +25,7 @@ const adminMenu = [
   { href: '/fire', label: 'Fire & İade' },
   { href: '/raporlar', label: 'Raporlar' },
   { href: '/import', label: 'Excel İçe Aktar' },
+  { href: '/gorsel', label: 'Görsel Üret' },
 ]
 
 const cashierMenu = [
@@ -118,9 +119,6 @@ export default function Sidebar() {
     }
   }
 
-  // Modal kapatılabilir mi? Şube seçilmişse veya admin moddaysa evet
-  const canDismissLocModal = isAdminMode || !!cashierLocationId
-
   return (
     <>
       <aside
@@ -130,7 +128,7 @@ export default function Sidebar() {
         {/* Brand */}
         <div
           className="px-6 py-5 flex-shrink-0 cursor-default select-none"
-          style={{ background: '#F27A1A' }}
+          style={{ background: '#7C3AED' }}
           onClick={handleLogoClick}
         >
           <p className="text-white font-bold text-xl tracking-wide" style={{ fontFamily: 'var(--font-display, Georgia, serif)', fontWeight: 600 }}>
@@ -142,33 +140,33 @@ export default function Sidebar() {
         </div>
 
         {!isAdminMode && (
-          <div className="mx-4 mt-3 px-3 py-1.5 text-center" style={{ background: '#FFF3E8', border: '1px solid #FDBA74', borderRadius: '4px' }}>
-            <p style={{ color: '#F27A1A', fontSize: '10px', letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 700 }}>Kasiyer Modu Aktif</p>
+          <div className="mx-4 mt-3 px-3 py-1.5 text-center" style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '4px' }}>
+            <p style={{ color: '#7C3AED', fontSize: '10px', letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 700 }}>Kasiyer Modu Aktif</p>
           </div>
         )}
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <nav className="px-3 py-3 overflow-y-auto" style={{ flex: '1 1 0', minHeight: 0, maxHeight: 'calc(100vh - 160px)' }}>
           {menu.map((item) => {
             const active = pathname === item.href
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center justify-between px-3 py-2.5 mb-0.5 transition-all duration-150"
+                className="flex items-center justify-between px-3 py-2 mb-0.5 transition-all duration-150"
                 style={{
                   borderRadius: '6px',
-                  background: active ? '#FFF3E8' : 'transparent',
-                  borderLeft: active ? '3px solid #F27A1A' : '3px solid transparent',
+                  background: active ? 'rgba(124,58,237,0.1)' : 'transparent',
+                  borderLeft: active ? '3px solid #7C3AED' : '3px solid transparent',
                 }}
               >
                 <span
-                  className="text-[12px] font-medium transition-colors"
-                  style={{ color: active ? '#F27A1A' : '#1A1A1A', fontWeight: active ? 700 : 500 }}
+                  className="text-[11.5px] font-medium transition-colors"
+                  style={{ color: active ? '#7C3AED' : '#1A1A1A', fontWeight: active ? 700 : 500 }}
                 >
                   {item.label}
                 </span>
-                {active && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#F27A1A' }} />}
+                {active && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#7C3AED' }} />}
               </Link>
             )
           })}
@@ -179,7 +177,7 @@ export default function Sidebar() {
           <button
             onClick={openLocModal}
             className="w-full flex items-center justify-center px-3 py-2.5 mb-3 transition-all font-semibold text-[11px] tracking-wider uppercase"
-            style={{ borderRadius: '6px', border: '1.5px solid #F27A1A', color: '#F27A1A', background: 'white' }}
+            style={{ borderRadius: '6px', border: '1.5px solid #7C3AED', color: '#7C3AED', background: 'white' }}
           >
             {isAdminMode ? 'Kasiyer Moduna Geç' : 'Şube Değiştir'}
           </button>
@@ -194,7 +192,7 @@ export default function Sidebar() {
       {showLocModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="w-full max-w-sm shadow-2xl" style={{ background: '#FFFFFF', borderRadius: '12px', overflow: 'hidden' }}>
-            <div className="px-6 py-4" style={{ background: '#F27A1A' }}>
+            <div className="px-6 py-4" style={{ background: '#7C3AED' }}>
               <h3 className="text-white font-bold text-lg">
                 {locStep === 'select' ? 'Şubenizi Seçin' : 'Kasiyer PIN'}
               </h3>
@@ -216,25 +214,14 @@ export default function Sidebar() {
                   >
                     {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={handleLocNext}
-                      disabled={!selectedLocId}
-                      className="flex-1 py-3 text-white font-semibold text-sm disabled:opacity-40"
-                      style={{ background: '#F27A1A', borderRadius: '8px' }}
-                    >
-                      Devam Et
-                    </button>
-                    {canDismissLocModal && (
-                      <button
-                        onClick={() => setShowLocModal(false)}
-                        className="flex-1 py-3 font-semibold text-sm"
-                        style={{ background: '#F5F5F5', color: '#1A1A1A', borderRadius: '8px' }}
-                      >
-                        İptal
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    onClick={handleLocNext}
+                    disabled={!selectedLocId}
+                    className="w-full py-3 text-white font-semibold text-sm disabled:opacity-40"
+                    style={{ background: '#7C3AED', borderRadius: '8px' }}
+                  >
+                    Devam Et
+                  </button>
                 </>
               ) : (
                 <>
@@ -256,7 +243,7 @@ export default function Sidebar() {
                     <button
                       onClick={handleCashierPinSubmit}
                       className="flex-1 py-3 text-white font-semibold text-sm"
-                      style={{ background: '#F27A1A', borderRadius: '8px' }}
+                      style={{ background: '#7C3AED', borderRadius: '8px' }}
                     >
                       Giriş Yap
                     </button>
@@ -279,7 +266,7 @@ export default function Sidebar() {
       {showAdminPin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="w-full max-w-sm shadow-2xl" style={{ background: '#FFFFFF', borderRadius: '12px', overflow: 'hidden' }}>
-            <div className="px-6 py-4" style={{ background: '#F27A1A' }}>
+            <div className="px-6 py-4" style={{ background: '#7C3AED' }}>
               <h3 className="text-white font-bold text-lg">Yönetici Girişi</h3>
               <p className="text-white/80 text-xs mt-0.5">PIN kodunuzu girin</p>
             </div>
@@ -302,7 +289,7 @@ export default function Sidebar() {
                 <button
                   onClick={handleAdminPinSubmit}
                   className="flex-1 py-3 text-white font-semibold text-sm"
-                  style={{ background: '#F27A1A', borderRadius: '8px' }}
+                  style={{ background: '#7C3AED', borderRadius: '8px' }}
                 >Giriş Yap</button>
                 <button
                   onClick={() => { setShowAdminPin(false); setAdminPin(''); setAdminPinError(false) }}

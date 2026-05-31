@@ -191,7 +191,7 @@ export default function Dashboard() {
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-64 gap-3">
-      <div className="w-8 h-8 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
       <p className="text-stone-400 text-sm">Yükleniyor...</p>
     </div>
   )
@@ -219,11 +219,19 @@ export default function Dashboard() {
   return (
     <div>
       {/* Greeting */}
-      <div className="mb-6">
-        <h2 className="text-stone-900 text-2xl font-bold tracking-tight">{getGreeting()}, hoş geldiniz</h2>
-        <p className="text-stone-400 text-sm mt-1">
-          {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-stone-900 text-2xl font-bold tracking-tight">{getGreeting()}, hoş geldiniz</h2>
+          <p className="text-stone-400 text-sm mt-1">
+            {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <a href="/gorsel" className="flex items-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-semibold shadow-sm transition-colors whitespace-nowrap flex-shrink-0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+          Görsel Üret
+        </a>
       </div>
 
       {/* Alert Section */}
@@ -260,13 +268,13 @@ export default function Dashboard() {
           )}
 
           {lowStockAlerts.length > 0 && (
-            <div className="bg-[#FFF3E8] border border-[#FDBA74] rounded-sm p-4">
-              <p className="text-[10px] font-bold text-[#F27A1A] uppercase tracking-[0.15em] mb-2.5">
+            <div className="bg-purple-50 border border-purple-200 rounded-sm p-4">
+              <p className="text-[10px] font-bold text-[#7C3AED] uppercase tracking-[0.15em] mb-2.5">
                 Düşük Stok Uyarısı — {lowStockAlerts.length} ürün
               </p>
               <div className="flex flex-wrap gap-2">
                 {lowStockAlerts.map(a => (
-                  <span key={a.id} className="bg-[#FFE8D0] border border-[#FDBA74] text-orange-800 text-xs px-2.5 py-1 rounded-sm font-medium">
+                  <span key={a.id} className="bg-purple-50 border border-purple-200 text-purple-800 text-xs px-2.5 py-1 rounded-sm font-medium">
                     {a.name} <span className="font-bold">· {a.detail}</span>
                   </span>
                 ))}
@@ -305,7 +313,7 @@ export default function Dashboard() {
                   <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
                     <div
                       className="h-full transition-all duration-700 rounded-full"
-                      style={{ width: `${(ls.totalItems / maxStock) * 100}%`, background: '#EA580C' }}
+                      style={{ width: `${(ls.totalItems / maxStock) * 100}%`, background: '#7C3AED' }}
                     />
                   </div>
                 </div>

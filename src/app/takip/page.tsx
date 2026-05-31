@@ -178,7 +178,7 @@ export default function TakipPage() {
           {!item.followup_done ? (
             <button
               onClick={() => markDone(item.id)}
-              className="border border-stone-200 hover:border-[#F27A1A] text-stone-600 hover:text-stone-900 px-3 py-2 rounded-sm text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
+              className="border border-stone-200 hover:border-[#7C3AED] text-stone-600 hover:text-stone-900 px-3 py-2 rounded-sm text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
             >Arandı</button>
           ) : (
             <button onClick={() => markUndone(item.id)} className="text-[10px] text-emerald-600 font-semibold hover:text-stone-400 transition-colors">
@@ -255,7 +255,7 @@ export default function TakipPage() {
             className={`w-full py-2.5 rounded-sm text-[11px] font-semibold uppercase tracking-[0.2em] transition-all ${
               savedFlash
                 ? 'bg-emerald-500 text-white'
-                : 'bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white'
+                : 'bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white'
             }`}
           >
             {saving ? 'Kaydediliyor...' : savedFlash ? '✓ Kaydedildi' : 'Kaydet'}
@@ -288,7 +288,7 @@ export default function TakipPage() {
               onClick={() => setFilter(key)}
               className={`px-4 py-1.5 rounded-sm text-[11px] font-semibold uppercase tracking-[0.12em] border transition-colors ${
                 filter === key
-                  ? 'bg-[#F27A1A] text-white border-[#F27A1A]'
+                  ? 'bg-[#7C3AED] text-white border-[#7C3AED]'
                   : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
               }`}
             >{label}</button>

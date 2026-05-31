@@ -103,7 +103,7 @@ export default function MaliyetPage() {
     `flex-1 px-2 py-2.5 text-sm font-semibold text-stone-900 outline-none tabular-nums bg-transparent`
 
   const wrapCls = (active: boolean) =>
-    `flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${active ? 'border-orange-400 bg-[#FFF3E8]/40' : 'border-stone-200 focus-within:border-orange-400'}`
+    `flex items-center border rounded-sm overflow-hidden w-36 transition-colors ${active ? 'border-[#7C3AED] bg-purple-50/40' : 'border-stone-200 focus-within:border-[#7C3AED]'}`
 
   return (
     <div>
@@ -122,7 +122,7 @@ export default function MaliyetPage() {
           <button
             onClick={saveAll}
             disabled={saving || changedCount === 0}
-            className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
+            className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
           >
             {saving ? 'Kaydediliyor...' : `Kaydet${changedCount > 0 ? ` (${changedCount})` : ''}`}
           </button>
@@ -139,7 +139,7 @@ export default function MaliyetPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Ürün ara..."
-              className="w-full border border-stone-200 rounded-sm pl-9 pr-4 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+              className="w-full border border-stone-200 rounded-sm pl-9 pr-4 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors"
             />
           </div>
 
@@ -148,7 +148,7 @@ export default function MaliyetPage() {
             <select
               value={defaultKdv}
               onChange={e => setDefaultKdv(Number(e.target.value))}
-              className="border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-orange-400 bg-white"
+              className="border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-[#7C3AED] bg-white"
             >
               {KDV_RATES.map(r => <option key={r} value={r}>%{r}</option>)}
             </select>
@@ -169,8 +169,7 @@ export default function MaliyetPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-100">
@@ -187,7 +186,7 @@ export default function MaliyetPage() {
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
-                      <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
                     </div>
                   </td>
@@ -199,7 +198,7 @@ export default function MaliyetPage() {
               ) : filtered.map(r => {
                 const changed = r.kdvHaric.trim() !== '' && parseFloat(r.kdvHaric) > 0
                 return (
-                  <tr key={r.id} className={`border-b border-stone-50 transition-colors ${changed ? 'bg-[#FFF3E8]/50' : 'hover:bg-stone-50/60'}`}>
+                  <tr key={r.id} className={`border-b border-stone-50 transition-colors ${changed ? 'bg-purple-50/50' : 'hover:bg-stone-50/60'}`}>
                     <td className="px-5 py-3">
                       <div className="w-10 h-10 bg-stone-100 rounded-sm flex items-center justify-center overflow-hidden">
                         {r.image_url
@@ -220,7 +219,7 @@ export default function MaliyetPage() {
                       <select
                         value={r.kdvRate}
                         onChange={e => changeRate(r.id, Number(e.target.value))}
-                        className="border border-stone-200 rounded-sm px-3 py-2.5 text-sm outline-none focus:border-orange-400 bg-white transition-colors"
+                        className="border border-stone-200 rounded-sm px-3 py-2.5 text-sm outline-none focus:border-[#7C3AED] bg-white transition-colors"
                       >
                         {KDV_RATES.map(rate => <option key={rate} value={rate}>%{rate}</option>)}
                       </select>
@@ -258,7 +257,6 @@ export default function MaliyetPage() {
               })}
             </tbody>
           </table>
-        </div>
       </div>
 
       {/* Sticky bottom save */}
@@ -267,7 +265,7 @@ export default function MaliyetPage() {
           <button
             onClick={saveAll}
             disabled={saving}
-            className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white px-8 py-3.5 rounded shadow-lg text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
+            className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white px-8 py-3.5 rounded shadow-lg text-[11px] tracking-[0.2em] uppercase font-semibold transition-all"
           >
             {saving ? 'Kaydediliyor...' : `${changedCount} Ürünü Kaydet`}
           </button>

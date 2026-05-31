@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Customer } from '@/types'
+import { useMode } from '@/contexts/ModeContext'
 
 const emptyForm = { name: '', phone: '', email: '', address: '', customer_type: 'bireysel', notes: '', referred_by: '' }
 
@@ -14,7 +15,7 @@ interface CustomerWithStats extends Customer {
   totalOrders: number
 }
 
-type Tab = 'tumu' | 'gelmeyenler'
+type Tab = 'tumu' | 'gelmeyenler' | 'silinen'
 
 function whatsappLink(phone: string, name: string) {
   const msg = encodeURIComponent(`Merhaba ${name}, sizi özledik! Dağdelen olarak tekrar görmek isteriz 🙏`)
@@ -25,6 +26,7 @@ function whatsappLink(phone: string, name: string) {
 
 export default function MusterilerPage() {
   const router = useRouter()
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
   const [customers, setCustomers] = useState<CustomerWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -38,8 +40,12 @@ export default function MusterilerPage() {
   useEffect(() => { fetchCustomers() }, [])
 
   async function fetchCustomers() {
+    let custsQuery = supabase.from('customers').select('*').order('name')
+    if (!isAdminMode && cashierLocationId) {
+      custsQuery = custsQuery.eq('location_id', cashierLocationId)
+    }
     const [{ data: custs }, { data: salesData }] = await Promise.all([
-      supabase.from('customers').select('*').order('name'),
+      custsQuery,
       supabase.from('sales')
         .select('customer_id, sale_date, total_amount, status')
         .eq('status', 'tamamlandi')
@@ -92,9 +98,15 @@ export default function MusterilerPage() {
 
   async function handleDelete() {
     if (!editing) return
-    if (!confirm(`"${editing.name}" silinsin mi? Bu işlem geri alınamaz.`)) return
+    if (!confirm(`"${editing.name}" silinsin mi?`)) return
     setSaving(true)
-    await supabase.from('customers').delete().eq('id', editing.id)
+    if (isAdminMode) {
+      await supabase.from('customers').delete().eq('id', editing.id)
+    } else {
+      const mark = `[SİLİNDİ — ${cashierLocationName ?? 'Kasiyer'} — ${new Date().toLocaleString('tr-TR')}]`
+      const newNotes = mark + (editing.notes ? ' ' + editing.notes : '')
+      await supabase.from('customers').update({ notes: newNotes }).eq('id', editing.id)
+    }
     setSaving(false)
     setShowModal(false)
     fetchCustomers()
@@ -103,7 +115,8 @@ export default function MusterilerPage() {
   async function handleSave() {
     if (!form.name) return alert('Müşteri adı zorunludur.')
     setSaving(true)
-    const payload = { name: form.name, phone: form.phone || null, email: form.email || null, address: form.address || null, customer_type: form.customer_type as any, notes: form.notes || null, referred_by: form.referred_by || null }
+    const payload: any = { name: form.name, phone: form.phone || null, email: form.email || null, address: form.address || null, customer_type: form.customer_type as any, notes: form.notes || null, referred_by: form.referred_by || null }
+    if (!editing && !isAdminMode && cashierLocationId) payload.location_id = cashierLocationId
     if (editing) { await supabase.from('customers').update(payload).eq('id', editing.id) }
     else { await supabase.from('customers').insert(payload) }
     setSaving(false)
@@ -111,23 +124,26 @@ export default function MusterilerPage() {
     fetchCustomers()
   }
 
-  const filtered = customers.filter(c =>
+  const activeCustomers = customers.filter(c => !c.notes?.startsWith('[SİLİNDİ'))
+  const deletedCustomers = customers.filter(c => c.notes?.startsWith('[SİLİNDİ'))
+
+  const filtered = activeCustomers.filter(c =>
     !search.trim() ||
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.phone ?? '').includes(search) ||
     (c.email ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const gelmeyenler = customers
+  const gelmeyenler = activeCustomers
     .filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30)
     .sort((a, b) => (b.daysSinceLast ?? 0) - (a.daysSinceLast ?? 0))
 
-  const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+  const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors"
 
   function daysBadge(days: number | null) {
     if (days === null) return <span className="text-stone-300 text-xs">—</span>
-    if (days === 0) return <span className="text-[#F27A1A] text-xs font-semibold">Bugün</span>
-    const cls = days > 90 ? 'text-red-600' : days > 60 ? 'text-amber-600' : days > 30 ? 'text-[#F27A1A]' : 'text-stone-500'
+    if (days === 0) return <span className="text-[#7C3AED] text-xs font-semibold">Bugün</span>
+    const cls = days > 90 ? 'text-red-600' : days > 60 ? 'text-amber-600' : days > 30 ? 'text-[#7C3AED]' : 'text-stone-500'
     return <span className={`text-xs font-semibold tabular-nums ${cls}`}>{days} gün önce</span>
   }
 
@@ -136,27 +152,36 @@ export default function MusterilerPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Müşteriler</h2>
-          <p className="text-stone-400 text-sm mt-1">{customers.length} kayıtlı müşteri</p>
+          <p className="text-stone-400 text-sm mt-1">{activeCustomers.length} kayıtlı müşteri</p>
         </div>
-        <button onClick={openAdd} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={openAdd} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Müşteri
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-5">
-        {([['tumu', 'Tüm Müşteriler'], ['gelmeyenler', 'Gelmeyenler']] as const).map(([key, label]) => (
+      <div className="flex gap-2 mb-5 flex-wrap">
+        {[
+          { key: 'tumu', label: 'Tüm Müşteriler' },
+          { key: 'gelmeyenler', label: 'Gelmeyenler' },
+          ...(isAdminMode ? [{ key: 'silinen', label: 'Silinen Müşteriler' }] : []),
+        ].map(({ key, label }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => setTab(key as Tab)}
             className={`px-5 py-2 rounded-sm text-[11px] font-semibold uppercase tracking-[0.12em] border transition-colors ${
-              tab === key ? 'bg-[#F27A1A] text-white border-[#F27A1A]' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
+              tab === key ? 'bg-[#7C3AED] text-white border-[#7C3AED]' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
             }`}
           >
             {label}
-            {key === 'gelmeyenler' && customers.filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30).length > 0 && (
+            {key === 'gelmeyenler' && gelmeyenler.length > 0 && (
               <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${tab === 'gelmeyenler' ? 'bg-white/20' : 'bg-amber-100 text-amber-700'}`}>
-                {customers.filter(c => c.daysSinceLast !== null && c.daysSinceLast >= 30).length}
+                {gelmeyenler.length}
+              </span>
+            )}
+            {key === 'silinen' && deletedCustomers.length > 0 && (
+              <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${tab === 'silinen' ? 'bg-white/20' : 'bg-red-100 text-red-600'}`}>
+                {deletedCustomers.length}
               </span>
             )}
           </button>
@@ -168,15 +193,14 @@ export default function MusterilerPage() {
         <>
           <div className="bg-white rounded-sm border border-stone-200 shadow-sm mb-5 p-4">
             <input
-              className="w-full border border-stone-200 rounded-sm px-4 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors"
+              className="w-full border border-stone-200 rounded-sm px-4 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors"
               placeholder="İsim, telefon veya e-posta ile ara..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
           </div>
 
-          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-200">
@@ -192,7 +216,7 @@ export default function MusterilerPage() {
                   {loading ? (
                     <tr><td colSpan={6} className="px-5 py-12 text-center">
                       <div className="flex items-center justify-center gap-2.5">
-                        <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                        <div className="w-5 h-5 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
                         <span className="text-stone-400 text-sm">Yükleniyor...</span>
                       </div>
                     </td></tr>
@@ -202,16 +226,16 @@ export default function MusterilerPage() {
                     <tr
                       key={c.id}
                       onClick={() => router.push(`/musteriler/${c.id}`)}
-                      className="border-b border-stone-100 hover:bg-[#FFF3E8]/40 transition-colors cursor-pointer"
+                      className="border-b border-stone-100 hover:bg-purple-50/40 transition-colors cursor-pointer"
                     >
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-[#FFE8D0] border border-[#FDBA74] flex items-center justify-center flex-shrink-0">
-                            <span className="text-[#E06010] text-xs font-bold">{c.name.charAt(0).toUpperCase()}</span>
+                          <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[#6D28D9] text-xs font-bold">{c.name.charAt(0).toUpperCase()}</span>
                           </div>
                           <span className="font-semibold text-stone-900">{c.name}</span>
                           {referralCount[c.id] > 0 && (
-                            <span className="px-2 py-0.5 bg-[#FFE8D0] border border-[#FDBA74] text-[#E06010] text-[9px] font-bold rounded-full">
+                            <span className="px-2 py-0.5 bg-purple-50 border border-purple-200 text-[#6D28D9] text-[9px] font-bold rounded-full">
                               {referralCount[c.id]} referans
                             </span>
                           )}
@@ -233,7 +257,6 @@ export default function MusterilerPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
           </div>
         </>
       )}
@@ -257,7 +280,7 @@ export default function MusterilerPage() {
                 <div
                   key={c.id}
                   onClick={() => router.push(`/musteriler/${c.id}`)}
-                  className={`bg-white border rounded-sm p-4 flex items-center gap-4 cursor-pointer transition-colors hover:bg-[#FFF3E8]/30 ${
+                  className={`bg-white border rounded-sm p-4 flex items-center gap-4 cursor-pointer transition-colors hover:bg-purple-50/30 ${
                     (c.daysSinceLast ?? 0) > 90 ? 'border-red-100' : (c.daysSinceLast ?? 0) > 60 ? 'border-amber-100' : 'border-stone-200'
                   }`}
                 >
@@ -277,7 +300,7 @@ export default function MusterilerPage() {
                   </div>
 
                   <div className="text-center flex-shrink-0">
-                    <p className={`text-lg font-bold tabular-nums ${(c.daysSinceLast ?? 0) > 90 ? 'text-red-600' : (c.daysSinceLast ?? 0) > 60 ? 'text-amber-600' : 'text-[#F27A1A]'}`}>
+                    <p className={`text-lg font-bold tabular-nums ${(c.daysSinceLast ?? 0) > 90 ? 'text-red-600' : (c.daysSinceLast ?? 0) > 60 ? 'text-amber-600' : 'text-[#7C3AED]'}`}>
                       {c.daysSinceLast} gün
                     </p>
                     <p className="text-[10px] text-stone-400">gelmiyor</p>
@@ -294,6 +317,55 @@ export default function MusterilerPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Silinen Müşteriler Tab — sadece admin */}
+      {tab === 'silinen' && isAdminMode && (
+        <>
+          <div className="flex items-center gap-3 mb-5">
+            <span className="text-sm font-semibold text-stone-600">Kasiyerler tarafından silinen müşteriler</span>
+            <span className="bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{deletedCustomers.length} kişi</span>
+          </div>
+          {deletedCustomers.length === 0 ? (
+            <div className="bg-white border border-stone-200 shadow-sm rounded-sm px-5 py-16 text-center">
+              <p className="text-stone-400 text-sm">Silinmiş müşteri yok</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-stone-200 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-100">
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İsim</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Telefon</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Silme Kaydı</th>
+                    <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedCustomers.map(c => {
+                    const markEnd = c.notes?.indexOf(']') ?? -1
+                    const deletionInfo = markEnd > -1 ? c.notes?.slice(1, markEnd) : c.notes
+                    return (
+                      <tr key={c.id} className="border-b border-stone-50">
+                        <td className="px-5 py-3.5 font-medium text-stone-500 line-through">{c.name}</td>
+                        <td className="px-5 py-3.5 text-stone-400 font-mono text-xs">{c.phone ?? '—'}</td>
+                        <td className="px-5 py-3.5 text-xs text-red-600">{deletionInfo}</td>
+                        <td className="px-5 py-3.5">
+                          <button
+                            onClick={async () => { if (confirm(`"${c.name}" kalıcı olarak silinsin mi?`)) { const { error } = await supabase.from('customers').delete().eq('id', c.id); if (error) alert('Silinemedi: ' + error.message); else fetchCustomers() } }}
+                            className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] border border-red-200 text-red-600 bg-red-50/50 hover:bg-red-100 rounded transition-colors"
+                          >
+                            Kalıcı Sil
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </>
@@ -353,7 +425,7 @@ export default function MusterilerPage() {
             </div>
             </div>
             <div className="flex gap-3 px-7 py-5 flex-shrink-0 border-t border-stone-100">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               {editing && (

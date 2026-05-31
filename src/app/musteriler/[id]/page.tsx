@@ -22,7 +22,7 @@ const statusStyle: Record<string, string> = {
   tamamlandi: 'border-emerald-200 text-emerald-700 bg-emerald-50/50',
   veresiye: 'border-amber-200 text-amber-700 bg-amber-50/50',
   iptal: 'border-red-200 text-red-600 bg-red-50/50',
-  iade: 'border-[#FDBA74] text-[#F27A1A] bg-[#FFF3E8]/50',
+  iade: 'border-purple-200 text-[#7C3AED] bg-purple-50/50',
 }
 const statusLabel: Record<string, string> = {
   tamamlandi: 'Tamamlandı', veresiye: 'Veresiye', iptal: 'İptal', iade: 'İade'
@@ -120,14 +120,14 @@ export default function MusteriProfil() {
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 gap-3">
-      <div className="w-7 h-7 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+      <div className="w-7 h-7 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
       <span className="text-stone-400 text-sm">Yükleniyor...</span>
     </div>
   )
   if (!customer) return (
     <div className="text-center py-20">
       <p className="text-stone-400">Müşteri bulunamadı</p>
-      <button onClick={() => router.back()} className="mt-4 text-[#F27A1A] text-sm font-semibold">← Geri dön</button>
+      <button onClick={() => router.back()} className="mt-4 text-[#7C3AED] text-sm font-semibold">← Geri dön</button>
     </div>
   )
 
@@ -179,27 +179,27 @@ export default function MusteriProfil() {
               <div>
                 <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1">İsim</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-orange-400 transition-colors" />
+                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-[#7C3AED] transition-colors" />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1">Telefon</label>
                 <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-orange-400 transition-colors" />
+                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-[#7C3AED] transition-colors" />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1">E-posta</label>
                 <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-orange-400 transition-colors" />
+                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-[#7C3AED] transition-colors" />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1">Adres</label>
                 <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-orange-400 transition-colors" />
+                  className="w-full border border-stone-200 rounded-sm px-3 py-2 text-sm outline-none focus:border-[#7C3AED] transition-colors" />
               </div>
             </div>
             <div className="flex gap-2">
               <button onClick={saveInfo} disabled={savingInfo}
-                className="bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white px-5 py-2 rounded-sm text-[11px] tracking-[0.15em] uppercase font-semibold transition-colors">
+                className="bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white px-5 py-2 rounded-sm text-[11px] tracking-[0.15em] uppercase font-semibold transition-colors">
                 {savingInfo ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setEditInfo(false)}
@@ -211,8 +211,8 @@ export default function MusteriProfil() {
         ) : (
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-full bg-[#FFE8D0] border-2 border-[#FDBA74] flex items-center justify-center flex-shrink-0">
-                <span className="text-[#E06010] text-xl font-bold">{customer.name.charAt(0).toUpperCase()}</span>
+              <div className="w-14 h-14 rounded-full bg-purple-50 border-2 border-purple-200 flex items-center justify-center flex-shrink-0">
+                <span className="text-[#6D28D9] text-xl font-bold">{customer.name.charAt(0).toUpperCase()}</span>
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -341,7 +341,7 @@ export default function MusteriProfil() {
                     <p className="text-sm font-semibold text-stone-800 truncate">{p.name}</p>
                     <p className="text-[10px] text-stone-400">{p.times} siparişte · toplam {p.totalQty} adet</p>
                   </div>
-                  <span className="text-xs font-bold text-[#E06010] tabular-nums flex-shrink-0">{p.totalQty} adet</span>
+                  <span className="text-xs font-bold text-[#6D28D9] tabular-nums flex-shrink-0">{p.totalQty} adet</span>
                 </div>
               ))}
             </div>
@@ -355,7 +355,7 @@ export default function MusteriProfil() {
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Bu müşteri hakkında not ekleyin — alerjiler, tercihler, aile bilgisi, özel istekler..."
-            className="flex-1 min-h-[130px] w-full border border-stone-200 rounded-sm px-3.5 py-3 text-sm outline-none focus:border-orange-400 transition-colors resize-none text-stone-700 placeholder-stone-300"
+            className="flex-1 min-h-[130px] w-full border border-stone-200 rounded-sm px-3.5 py-3 text-sm outline-none focus:border-[#7C3AED] transition-colors resize-none text-stone-700 placeholder-stone-300"
           />
           <div className="flex items-center gap-3 mt-3">
             <button
@@ -364,7 +364,7 @@ export default function MusteriProfil() {
               className={`px-5 py-2 rounded-sm text-[11px] font-semibold uppercase tracking-[0.15em] transition-all ${
                 notesSaved
                   ? 'bg-emerald-500 text-white'
-                  : 'bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white'
+                  : 'bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white'
               }`}
             >
               {savingNotes ? 'Kaydediliyor...' : notesSaved ? '✓ Kaydedildi' : 'Notu Kaydet'}

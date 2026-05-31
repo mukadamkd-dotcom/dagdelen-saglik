@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Location } from '@/types'
 import { useMode } from '@/contexts/ModeContext'
 
-interface SaleItem { product_id: string; quantity: number; sale_price: number; purchase_price: number }
+interface SaleItem { product_id: string; quantity: number; sale_price: number; purchase_price: number; expiry_date: string | null }
 
 const emptyForm = { location_id: '', customer_id: '', channel: 'fiziksel', discount_amount: '0', notes: '' }
 
@@ -29,11 +29,15 @@ export default function SatislarPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(emptyForm)
-  const [items, setItems] = useState<SaleItem[]>([{ product_id: '', quantity: 1, sale_price: 0, purchase_price: 0 }])
+  const [items, setItems] = useState<SaleItem[]>([{ product_id: '', quantity: 1, sale_price: 0, purchase_price: 0, expiry_date: null }])
   const [saving, setSaving] = useState(false)
+  const [miadMap, setMiadMap] = useState<Record<string, { date: string; qty: number }[]>>({})
+  const miadFetched = useRef(new Set<string>())
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState<string | null>(null)
   const [filterLoc, setFilterLoc] = useState('')
-  const { isAdminMode, cashierLocationId } = useMode()
+  const [tab, setTab] = useState<'satislar' | 'iptal'>('satislar')
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
 
   useEffect(() => {
     if (!isAdminMode && cashierLocationId) setFilterLoc(cashierLocationId)
@@ -43,7 +47,7 @@ export default function SatislarPage() {
 
   async function fetchAll() {
     const [{ data: s }, { data: p }, { data: l }, { data: c }] = await Promise.all([
-      supabase.from('sales').select('*, locations(name), customers(name), sale_items(*, products(name))').order('created_at', { ascending: false }).limit(60),
+      supabase.from('sales').select('*, locations(name), customers(name), sale_items(*, products(name))').order('created_at', { ascending: false }).limit(200),
       supabase.from('products').select('id, name, unit, standard_price, min_sale_price, purchase_price').eq('is_active', true).order('name'),
       supabase.from('locations').select('*').order('name'),
       supabase.from('customers').select('id, name, phone').order('name'),
@@ -55,7 +59,25 @@ export default function SatislarPage() {
     setLoading(false)
   }
 
-  function addItem() { setItems(i => [...i, { product_id: '', quantity: 1, sale_price: 0, purchase_price: 0 }]) }
+  async function loadMiads(productId: string, locationId: string) {
+    if (!productId || !locationId) return
+    const key = `${productId}_${locationId}`
+    if (miadFetched.current.has(key)) return
+    miadFetched.current.add(key)
+    const { data } = await supabase.from('stock_movements').select('notes, quantity')
+      .like('notes', 'SAYIM_MIAD:%').eq('to_location_id', locationId).eq('product_id', productId)
+      .order('created_at', { ascending: false }).limit(50)
+    const seen = new Set<string>()
+    const miads: { date: string; qty: number }[] = []
+    ;(data ?? []).forEach((m: any) => {
+      const d = m.notes.replace('SAYIM_MIAD:', '')
+      if (!seen.has(d) && Number(m.quantity) > 0) { seen.add(d); miads.push({ date: d, qty: Number(m.quantity) }) }
+    })
+    miads.sort((a, b) => a.date.localeCompare(b.date))
+    setMiadMap(prev => ({ ...prev, [key]: miads }))
+  }
+
+  function addItem() { setItems(i => [...i, { product_id: '', quantity: 1, sale_price: 0, purchase_price: 0, expiry_date: null }]) }
   function removeItem(idx: number) { setItems(i => i.filter((_, j) => j !== idx)) }
   function updateItem(idx: number, field: keyof SaleItem, val: string | number) {
     setItems(items => items.map((item, i) => {
@@ -64,34 +86,64 @@ export default function SatislarPage() {
       if (field === 'product_id') {
         const p = products.find(x => x.id === val)
         if (p) { updated.sale_price = p.standard_price; updated.purchase_price = p.purchase_price }
+        updated.expiry_date = null
       }
       return updated
     }))
   }
 
+  useEffect(() => {
+    const locId = isAdminMode ? form.location_id : (cashierLocationId ?? '')
+    if (!locId) return
+    items.forEach(item => { if (item.product_id) loadMiads(item.product_id, locId) })
+  }, [items.map(i => i.product_id).join(','), form.location_id, cashierLocationId])
+
   const totalAmount = items.reduce((s, i) => s + (i.quantity * i.sale_price), 0) - Number(form.discount_amount || 0)
 
   async function handleSave() {
     if (!form.location_id || items.some(i => !i.product_id)) return alert('Lokasyon ve tüm ürünler zorunludur.')
+    const locId = isAdminMode ? form.location_id : (cashierLocationId ?? form.location_id)
     for (const item of items) {
       const p = products.find(x => x.id === item.product_id)
       if (p && item.sale_price < p.min_sale_price) return alert(`"${p.name}" için minimum satış fiyatı ₺${p.min_sale_price}. ₺${item.sale_price} kabul edilemez.`)
+      const miads = miadMap[`${item.product_id}_${locId}`]
+      if (miads && miads.length > 0 && !item.expiry_date) return alert(`"${p?.name ?? 'Ürün'}" için miad tarihi seçin.`)
     }
     setSaving(true)
 
-    const { data: sale } = await supabase.from('sales').insert({ location_id: form.location_id, customer_id: form.customer_id || null, channel: form.channel, total_amount: totalAmount, discount_amount: Number(form.discount_amount || 0), notes: form.notes || null }).select().single()
+    const { data: sale, error: saleErr } = await supabase.from('sales').insert({ location_id: form.location_id, customer_id: form.customer_id || null, channel: form.channel, total_amount: totalAmount, discount_amount: Number(form.discount_amount || 0), notes: form.notes || null }).select().single()
+    if (saleErr || !sale) { setSaving(false); return alert('Satış kaydedilemedi: ' + (saleErr?.message ?? 'Bilinmeyen hata')) }
 
     for (const item of items) {
       await supabase.from('sale_items').insert({ sale_id: sale.id, product_id: item.product_id, quantity: item.quantity, sale_price: item.sale_price, purchase_price: item.purchase_price, profit: (item.sale_price - item.purchase_price) * item.quantity })
-      const { data: inv } = await supabase.from('inventory').select('id, quantity').eq('product_id', item.product_id).eq('location_id', form.location_id).single()
+      const { data: inv } = await supabase.from('inventory').select('id, quantity').eq('product_id', item.product_id).eq('location_id', form.location_id).maybeSingle()
       if (inv) await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - item.quantity) }).eq('id', inv.id)
       await supabase.from('stock_movements').insert({ product_id: item.product_id, from_location_id: form.location_id, quantity: item.quantity, movement_type: 'satis', reference_id: sale.id })
+      if (item.expiry_date) {
+        const { data: lastMiad } = await supabase.from('stock_movements').select('quantity')
+          .eq('product_id', item.product_id).eq('to_location_id', form.location_id)
+          .eq('notes', `SAYIM_MIAD:${item.expiry_date}`)
+          .order('created_at', { ascending: false }).limit(1).maybeSingle()
+        const prevQty = Number(lastMiad?.quantity ?? item.quantity)
+        await supabase.from('stock_movements').insert({ product_id: item.product_id, to_location_id: form.location_id, quantity: Math.max(0, prevQty - item.quantity), movement_type: 'satis', notes: `SAYIM_MIAD:${item.expiry_date}` })
+      }
     }
 
     setSaving(false)
     setShowModal(false)
     setForm(emptyForm)
-    setItems([{ product_id: '', quantity: 1, sale_price: 0, purchase_price: 0 }])
+    setItems([{ product_id: '', quantity: 1, sale_price: 0, purchase_price: 0, expiry_date: null }])
+    setMiadMap({})
+    miadFetched.current.clear()
+    fetchAll()
+  }
+
+  async function cancelSale(id: string) {
+    if (!confirm('Bu satışı iptal etmek istediğinizden emin misiniz?')) return
+    setCancelling(id)
+    const note = `Kasiyer sildi — ${cashierLocationName ?? ''} — ${new Date().toLocaleString('tr-TR')}`
+    await supabase.from('sales').update({ status: 'iptal', notes: note }).eq('id', id)
+    setCancelling(null)
     fetchAll()
   }
 
@@ -104,10 +156,16 @@ export default function SatislarPage() {
     fetchAll()
   }
 
-  const filtered = filterLoc ? sales.filter(s => s.location_id === filterLoc) : sales
+  const locFiltered = filterLoc ? sales.filter(s => s.location_id === filterLoc) : sales
+  const filtered = isAdminMode
+    ? (tab === 'iptal' ? locFiltered.filter(s => s.status === 'iptal') : locFiltered.filter(s => s.status !== 'iptal'))
+    : locFiltered
 
   const inp = "w-full border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
   const inpSm = "w-full border border-stone-200 rounded-sm px-2.5 py-2 text-sm outline-none focus:border-stone-400 transition-colors bg-white"
+
+  // column counts: admin=9, cashier=8 (with İptal Et column)
+  const colSpan = isAdminMode ? 9 : 8
 
   return (
     <div>
@@ -121,7 +179,7 @@ export default function SatislarPage() {
             setForm({ ...emptyForm, location_id: !isAdminMode && cashierLocationId ? cashierLocationId : '' })
             setShowModal(true)
           }}
-          className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
+          className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all"
         >
           + Yeni Satış
         </button>
@@ -140,8 +198,25 @@ export default function SatislarPage() {
         </div>
       )}
 
-      <div className="bg-white border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      {isAdminMode && (
+        <div className="flex mb-0 border-b border-stone-200">
+          {(['satislar', 'iptal'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] transition-colors border-b-2"
+              style={{
+                borderColor: tab === t ? '#7C3AED' : 'transparent',
+                color: tab === t ? '#7C3AED' : '#9CA3AF',
+              }}
+            >
+              {t === 'satislar' ? 'Satışlar' : 'İptal Geçmişi'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-white border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-100">
@@ -151,15 +226,17 @@ export default function SatislarPage() {
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Müşteri</th>
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Ürünler</th>
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Toplam</th>
-                {isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Kar</th>}
+                {isAdminMode && tab === 'satislar' && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Kar</th>}
+                {isAdminMode && tab === 'iptal' && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Not</th>}
                 <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Durum</th>
                 {isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>}
+                {!isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">İşlem</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={isAdminMode ? 9 : 7} className="px-5 py-12 text-center">
+                  <td colSpan={colSpan} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
                       <div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
@@ -167,7 +244,7 @@ export default function SatislarPage() {
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={isAdminMode ? 9 : 7} className="px-5 py-12 text-center text-stone-400 text-sm">Satış bulunamadı</td></tr>
+                <tr><td colSpan={colSpan} className="px-5 py-12 text-center text-stone-400 text-sm">Satış bulunamadı</td></tr>
               ) : filtered.map(s => {
                 const profit = (s.sale_items ?? []).reduce((sum: number, i: any) => sum + Number(i.profit ?? 0), 0)
                 const badge = statusMap[s.status]
@@ -183,7 +260,10 @@ export default function SatislarPage() {
                     <td className="px-5 py-3.5 text-stone-600">{s.customers?.name ?? 'Anonim'}</td>
                     <td className="px-5 py-3.5 text-stone-500 max-w-[180px] truncate">{(s.sale_items ?? []).map((i: any) => i.products?.name).join(', ')}</td>
                     <td className="px-5 py-3.5 font-bold text-stone-900 tabular-nums">₺{Number(s.total_amount).toLocaleString('tr-TR')}</td>
-                    {isAdminMode && <td className="px-5 py-3.5 font-semibold text-stone-700 tabular-nums">₺{profit.toLocaleString('tr-TR')}</td>}
+                    {isAdminMode && tab === 'satislar' && <td className="px-5 py-3.5 font-semibold text-stone-700 tabular-nums">₺{profit.toLocaleString('tr-TR')}</td>}
+                    {isAdminMode && tab === 'iptal' && (
+                      <td className="px-5 py-3.5 text-stone-500 text-xs max-w-[200px] truncate" title={s.notes ?? ''}>{s.notes ?? '—'}</td>
+                    )}
                     <td className="px-5 py-3.5">
                       <span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${badge ? badge.style : 'border border-stone-200 text-stone-600'}`}>
                         {s.status}
@@ -200,12 +280,26 @@ export default function SatislarPage() {
                         </button>
                       </td>
                     )}
+                    {!isAdminMode && (
+                      <td className="px-5 py-3.5">
+                        {s.status !== 'iptal' ? (
+                          <button
+                            onClick={() => cancelSale(s.id)}
+                            disabled={cancelling === s.id}
+                            className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] border border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-100 disabled:opacity-40 rounded transition-colors"
+                          >
+                            {cancelling === s.id ? '...' : 'Sil'}
+                          </button>
+                        ) : (
+                          <span className="text-stone-300 text-xs">—</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
             </tbody>
           </table>
-        </div>
       </div>
 
       {showModal && (
@@ -217,7 +311,12 @@ export default function SatislarPage() {
                 <div>
                   <label className="block text-xs font-semibold text-stone-600 mb-1.5 uppercase tracking-[0.1em]">Lokasyon *</label>
                   {isAdminMode ? (
-                    <select className={inp} value={form.location_id} onChange={e => setForm(f => ({ ...f, location_id: e.target.value }))}>
+                    <select className={inp} value={form.location_id} onChange={e => {
+                      setForm(f => ({ ...f, location_id: e.target.value }))
+                      setItems(prev => prev.map(i => ({ ...i, expiry_date: null })))
+                      setMiadMap({})
+                      miadFetched.current.clear()
+                    }}>
                       <option value="">Seçin...</option>
                       {locations.filter(l => l.type !== 'website').map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
@@ -247,28 +346,71 @@ export default function SatislarPage() {
                   <p className="text-xs font-semibold text-stone-600 uppercase tracking-[0.1em]">Ürünler</p>
                   <button onClick={addItem} className="text-stone-700 hover:text-stone-900 text-xs font-semibold transition-colors">+ Ürün Ekle</button>
                 </div>
-                {items.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-center">
-                    <div className="col-span-5">
-                      <select className={inpSm} value={item.product_id} onChange={e => updateItem(idx, 'product_id', e.target.value)}>
-                        <option value="">Ürün...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-span-2">
-                      <input type="number" min="1" placeholder="Adet" className={inpSm} value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} />
-                    </div>
-                    <div className="col-span-3">
-                      <input type="number" step="0.01" placeholder="Fiyat ₺" className={inpSm} value={item.sale_price} onChange={e => updateItem(idx, 'sale_price', Number(e.target.value))} />
-                    </div>
-                    <div className="col-span-1 text-xs text-stone-500 text-center tabular-nums">₺{(item.quantity * item.sale_price).toLocaleString('tr-TR')}</div>
-                    <div className="col-span-1 text-center">
-                      {items.length > 1 && (
-                        <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 text-xl leading-none transition-colors">×</button>
+                {items.map((item, idx) => {
+                  const locId = isAdminMode ? form.location_id : (cashierLocationId ?? '')
+                  const miadKey = `${item.product_id}_${locId}`
+                  const miads = item.product_id && locId ? miadMap[miadKey] : undefined
+                  return (
+                    <div key={idx} className="mb-3">
+                      <div className="grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-5">
+                          <select className={inpSm} value={item.product_id} onChange={e => updateItem(idx, 'product_id', e.target.value)}>
+                            <option value="">Ürün...</option>
+                            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <input type="number" min="1" placeholder="Adet" className={inpSm} value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} />
+                        </div>
+                        <div className="col-span-3">
+                          <input type="number" step="0.01" placeholder="Fiyat ₺" className={inpSm} value={item.sale_price} onChange={e => updateItem(idx, 'sale_price', Number(e.target.value))} />
+                        </div>
+                        <div className="col-span-1 text-xs text-stone-500 text-center tabular-nums">₺{(item.quantity * item.sale_price).toLocaleString('tr-TR')}</div>
+                        <div className="col-span-1 text-center">
+                          {items.length > 1 && (
+                            <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 text-xl leading-none transition-colors">×</button>
+                          )}
+                        </div>
+                      </div>
+                      {item.product_id && locId && (
+                        <div className="mt-1.5 pl-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.1em] flex-shrink-0">Miad:</span>
+                          {miads === undefined ? (
+                            <span className="text-xs text-stone-400 italic">yükleniyor...</span>
+                          ) : miads.length === 0 ? (
+                            <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-sm font-semibold">Kayıtlı miad yok — stok sayımı gerekli</span>
+                          ) : (
+                            <>
+                              {miads.map(m => {
+                                const daysLeft = Math.floor((new Date(m.date).getTime() - Date.now()) / 86400000)
+                                const isSelected = item.expiry_date === m.date
+                                return (
+                                  <button
+                                    key={m.date}
+                                    type="button"
+                                    onClick={() => setItems(prev => prev.map((it, i) => i === idx ? { ...it, expiry_date: isSelected ? null : m.date } : it))}
+                                    className={`px-2.5 py-0.5 rounded-sm text-[11px] font-bold border transition-all ${
+                                      isSelected ? 'bg-[#7C3AED] text-white border-[#7C3AED]'
+                                      : daysLeft < 0 ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                      : daysLeft <= 30 ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-500'
+                                    }`}
+                                  >
+                                    {new Date(m.date).toLocaleDateString('tr-TR')}
+                                    <span className="ml-1 opacity-60 font-normal">({m.qty})</span>
+                                  </button>
+                                )
+                              })}
+                              {!item.expiry_date && (
+                                <span className="text-[10px] text-red-500 font-semibold">← Seçmek zorunlu</span>
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div>
@@ -281,7 +423,7 @@ export default function SatislarPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Satışı Tamamla'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

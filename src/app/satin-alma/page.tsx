@@ -35,7 +35,7 @@ export default function SatinAlmaPage() {
     const [{ data: purData }, { data: prodData }, { data: locData }] = await Promise.all([
       supabase.from('purchases').select('*, products(name, unit)').order('created_at', { ascending: false }).limit(50),
       supabase.from('products').select('id, name, barcode, unit, purchase_price').eq('is_active', true).order('name'),
-      supabase.from('locations').select('*').eq('type', 'depo').single(),
+      supabase.from('locations').select('*').eq('type', 'depo').maybeSingle(),
     ])
     setPurchases(purData ?? [])
     setProducts(prodData ?? [])
@@ -118,7 +118,7 @@ export default function SatinAlmaPage() {
       expiry_date: form.expiry_date || null,
     }).select().single()
 
-    const { data: existing } = await supabase.from('inventory').select('id, quantity').eq('product_id', productId).eq('location_id', depo.id).single()
+    const { data: existing } = await supabase.from('inventory').select('id, quantity').eq('product_id', productId).eq('location_id', depo.id).maybeSingle()
     if (existing) {
       await supabase.from('inventory').update({ quantity: Number(existing.quantity) + Number(form.quantity) }).eq('id', existing.id)
     } else {
@@ -151,13 +151,12 @@ export default function SatinAlmaPage() {
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Satın Alma</h2>
           <p className="text-stone-400 text-sm mt-1">Eczaneden alınan ürünler → Ana Depo</p>
         </div>
-        <button onClick={openModal} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={openModal} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Alım
         </button>
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
@@ -205,7 +204,6 @@ export default function SatinAlmaPage() {
               ))}
             </tbody>
           </table>
-        </div>
       </div>
 
       {showModal && (
@@ -261,7 +259,7 @@ export default function SatinAlmaPage() {
                     <button
                       onClick={() => { setShowNewProduct(true); setShowDropdown(false); setNewProduct(f => ({ ...f, name: productSearch, barcode: products.find(p => p.barcode === productSearch.trim()) ? '' : /^\d{8,14}$/.test(productSearch.trim()) ? productSearch.trim() : '' })) }}
                       className="text-[11px] font-bold uppercase tracking-wider text-white px-4 py-2 rounded transition-colors"
-                      style={{ background: '#F27A1A' }}
+                      style={{ background: '#7C3AED' }}
                     >
                       + Yeni Ürün Olarak Ekle
                     </button>
@@ -271,7 +269,7 @@ export default function SatinAlmaPage() {
                 {/* Seçili ürün etiketi */}
                 {selectedProduct && (
                   <div className="mt-1.5 flex items-center gap-2 bg-[#FFF3E8] border border-[#FDBA74] rounded-sm px-3 py-2">
-                    <span className="text-xs font-bold text-[#F27A1A]">✓</span>
+                    <span className="text-xs font-bold text-[#7C3AED]">✓</span>
                     <span className="text-sm font-semibold text-stone-800">{selectedProduct.name}</span>
                     {selectedProduct.barcode && <span className="text-xs text-stone-400 font-mono">{selectedProduct.barcode}</span>}
                   </div>
@@ -342,7 +340,7 @@ export default function SatinAlmaPage() {
                         type="button"
                         onClick={() => setKdvRate(r)}
                         className={`px-3 py-2 text-xs font-bold transition-colors border-r border-stone-200 last:border-0 ${kdvRate === r ? 'text-white' : 'bg-white text-stone-500 hover:bg-stone-50'}`}
-                        style={kdvRate === r ? { background: '#F27A1A' } : {}}
+                        style={kdvRate === r ? { background: '#7C3AED' } : {}}
                       >
                         {r === 0 ? 'KDV Yok' : `%${r}`}
                       </button>
@@ -411,15 +409,15 @@ export default function SatinAlmaPage() {
                   </div>
                   {kdvRate > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-sm font-bold" style={{ color: '#F27A1A' }}>KDV Dahil Genel Toplam</span>
-                      <span className="font-bold text-lg" style={{ color: '#F27A1A' }}>₺{(Number(form.quantity) * Number(form.purchase_price) * (1 + kdvRate / 100)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>KDV Dahil Genel Toplam</span>
+                      <span className="font-bold text-lg" style={{ color: '#7C3AED' }}>₺{(Number(form.quantity) * Number(form.purchase_price) * (1 + kdvRate / 100)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                 </div>
               )}
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

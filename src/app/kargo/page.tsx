@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useMode } from '@/contexts/ModeContext'
 import type { Location } from '@/types'
 
 const emptyForm = { location_id: '', recipient_name: '', recipient_phone: '', address: '', tracking_no: '', notes: '' }
@@ -14,6 +15,7 @@ const statusBadge: Record<string, string> = {
 const statusLabel: Record<string, string> = { hazirlaniyor: 'Hazırlanıyor', kuryede: 'Kuryede', teslim: 'Teslim Edildi', iade: 'İade' }
 
 export default function KargoPage() {
+  const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
   const [orders, setOrders] = useState<any[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,10 +37,12 @@ export default function KargoPage() {
   }
 
   async function handleSave() {
-    if (!form.location_id || !form.recipient_name || !form.address) return alert('Lokasyon, alıcı adı ve adres zorunludur.')
+    const locId = isAdminMode ? form.location_id : (cashierLocationId ?? '')
+    if (!locId || !form.recipient_name || !form.address) return alert('Lokasyon, alıcı adı ve adres zorunludur.')
     setSaving(true)
-    await supabase.from('courier_orders').insert({ location_id: form.location_id, recipient_name: form.recipient_name, recipient_phone: form.recipient_phone || null, address: form.address, tracking_no: form.tracking_no || null })
+    const { error } = await supabase.from('courier_orders').insert({ location_id: locId, recipient_name: form.recipient_name, recipient_phone: form.recipient_phone || null, address: form.address, tracking_no: form.tracking_no || null })
     setSaving(false)
+    if (error) return alert('Kargo kaydedilemedi: ' + error.message)
     setShowModal(false)
     setForm(emptyForm)
     fetchAll()
@@ -47,7 +51,8 @@ export default function KargoPage() {
   async function updateStatus(id: string, status: string) {
     const update: any = { status }
     if (status === 'teslim') update.delivery_date = new Date().toISOString()
-    await supabase.from('courier_orders').update(update).eq('id', id)
+    const { error } = await supabase.from('courier_orders').update(update).eq('id', id)
+    if (error) { alert('Durum güncellenemedi: ' + error.message); return }
     fetchAll()
   }
 
@@ -62,7 +67,7 @@ export default function KargoPage() {
           <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Kargo Takibi</h2>
           <p className="text-stone-400 text-sm mt-1">Tüm lokasyonların kargo siparişleri</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
+        <button onClick={() => setShowModal(true)} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium shadow-sm transition-all">
           + Yeni Kargo
         </button>
       </div>
@@ -74,7 +79,7 @@ export default function KargoPage() {
             onClick={() => setFilterStatus(s)}
             className={`px-4 py-2 rounded text-[11px] tracking-[0.15em] uppercase font-medium transition-all ${
               filterStatus === s
-                ? 'bg-[#F27A1A] text-white shadow-sm'
+                ? 'bg-[#7C3AED] text-white shadow-sm'
                 : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
             }`}
           >
@@ -83,8 +88,7 @@ export default function KargoPage() {
         ))}
       </div>
 
-      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
@@ -139,7 +143,6 @@ export default function KargoPage() {
               ))}
             </tbody>
           </table>
-        </div>
       </div>
 
       {showModal && (
@@ -149,10 +152,14 @@ export default function KargoPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-stone-700 mb-1.5">Gönderen Lokasyon *</label>
-                <select className={inp} value={form.location_id} onChange={e => setForm(f => ({ ...f, location_id: e.target.value }))}>
-                  <option value="">Seçin...</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                {isAdminMode ? (
+                  <select className={inp} value={form.location_id} onChange={e => setForm(f => ({ ...f, location_id: e.target.value }))}>
+                    <option value="">Seçin...</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                ) : (
+                  <div className="border border-stone-200 rounded-sm px-3.5 py-2.5 text-sm text-stone-700 bg-stone-50 font-medium">{cashierLocationName}</div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -174,7 +181,7 @@ export default function KargoPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-7">
-              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
+              <button onClick={handleSave} disabled={saving} className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
                 {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
               <button onClick={() => setShowModal(false)} className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 py-3 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">

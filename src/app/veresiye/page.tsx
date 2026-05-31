@@ -31,7 +31,7 @@ export default function VeresiyePage() {
 
   async function markPaid(id: string) {
     setPaying(id)
-    await supabase.from('sales').update({ status: 'tamamlandi', notes: 'Veresiye ödendi' }).eq('id', id)
+    await supabase.from('sales').update({ status: 'tamamlandi' }).eq('id', id)
     setPaying(null)
     fetchVeresiye()
   }
@@ -61,7 +61,7 @@ export default function VeresiyePage() {
           <p className="text-stone-400 text-sm mt-1">
             {sales.length} bekleyen satış
             {!isAdminMode && cashierLocationName && (
-              <span className="ml-2 text-[#F27A1A] font-semibold">— {cashierLocationName}</span>
+              <span className="ml-2 text-[#7C3AED] font-semibold">— {cashierLocationName}</span>
             )}
           </p>
         </div>

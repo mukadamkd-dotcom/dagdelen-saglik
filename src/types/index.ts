@@ -1,6 +1,6 @@
 export type LocationType = 'eczane' | 'magaza' | 'depo' | 'website'
 export type SaleChannel = 'fiziksel' | 'instagram' | 'online'
-export type SaleStatus = 'tamamlandi' | 'iptal' | 'iade'
+export type SaleStatus = 'tamamlandi' | 'iptal' | 'iade' | 'veresiye'
 export type TransferStatus = 'beklemede' | 'tamamlandi' | 'iptal'
 export type CourierStatus = 'hazirlaniyor' | 'kuryede' | 'teslim' | 'iade'
 export type LossType = 'kargo_hasari' | 'iade' | 'bozulma' | 'fire' | 'diger'
@@ -105,6 +105,8 @@ export interface Customer {
   address?: string
   customer_type: CustomerType
   notes?: string
+  location_id?: string
+  referred_by?: string
   created_at: string
 }
 

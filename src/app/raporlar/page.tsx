@@ -91,22 +91,37 @@ export default function RaporlarPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Raporlar</h2>
-        <p className="text-stone-400 text-sm mt-1">Satış, karlılık ve ürün analizi</p>
+      <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900 tracking-tight">Raporlar</h2>
+          <p className="text-stone-400 text-sm mt-1">Satış, karlılık ve ürün analizi</p>
+        </div>
+        <a
+          href="/downloads/dagdelen-strateji-plani.csv"
+          download="Dagdelen-Strateji-Plani.csv"
+          className="flex items-center gap-2 px-4 py-2.5 text-white text-[11px] tracking-[0.2em] uppercase font-semibold shadow-sm transition-all"
+          style={{ background: '#16A34A', borderRadius: '6px' }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Strateji Planı İndir
+        </a>
       </div>
 
       {/* Date Filter */}
       <div className="bg-white border border-stone-200 shadow-sm rounded-sm p-5 mb-6 flex gap-5 items-end flex-wrap">
         <div>
           <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1.5">Başlangıç</label>
-          <input type="date" className="border border-stone-200 rounded px-3.5 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors text-stone-700" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          <input type="date" className="border border-stone-200 rounded px-3.5 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors text-stone-700" value={startDate} onChange={e => setStartDate(e.target.value)} />
         </div>
         <div>
           <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1.5">Bitiş</label>
-          <input type="date" className="border border-stone-200 rounded px-3.5 py-2.5 text-sm outline-none focus:border-orange-400 transition-colors text-stone-700" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          <input type="date" className="border border-stone-200 rounded px-3.5 py-2.5 text-sm outline-none focus:border-[#7C3AED] transition-colors text-stone-700" value={endDate} onChange={e => setEndDate(e.target.value)} />
         </div>
-        <button onClick={fetchReports} className="bg-[#F27A1A] hover:bg-[#E06010] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase shadow-sm transition-all">Uygula</button>
+        <button onClick={fetchReports} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-5 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase shadow-sm transition-all">Uygula</button>
       </div>
 
       {/* Summary Cards */}
@@ -135,7 +150,7 @@ export default function RaporlarPage() {
             key={key}
             onClick={() => setTab(key)}
             className={`px-5 py-2 rounded-sm text-[11px] font-semibold uppercase tracking-[0.12em] border transition-colors ${
-              tab === key ? 'bg-[#F27A1A] text-white border-[#F27A1A]' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
+              tab === key ? 'bg-[#7C3AED] text-white border-[#7C3AED]' : 'bg-white text-stone-500 border-stone-200 hover:border-stone-400'
             }`}
           >{label}</button>
         ))}
@@ -161,7 +176,7 @@ export default function RaporlarPage() {
                 {loading ? (
                   <tr><td colSpan={7} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
-                      <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
                     </div>
                   </td></tr>
@@ -208,7 +223,7 @@ export default function RaporlarPage() {
                 key={key}
                 onClick={() => setSortBy(key)}
                 className={`px-3 py-1 rounded-sm text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${
-                  sortBy === key ? 'bg-[#F27A1A] text-white' : 'bg-white border border-stone-200 text-stone-500 hover:border-stone-400'
+                  sortBy === key ? 'bg-[#7C3AED] text-white' : 'bg-white border border-stone-200 text-stone-500 hover:border-stone-400'
                 }`}
               >{label}</button>
             ))}
@@ -231,7 +246,7 @@ export default function RaporlarPage() {
                 {loading ? (
                   <tr><td colSpan={7} className="px-5 py-12 text-center">
                     <div className="flex items-center justify-center gap-2.5">
-                      <div className="w-5 h-5 border-2 border-stone-200 border-t-orange-600 rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-stone-200 border-t-[#7C3AED] rounded-full animate-spin" />
                       <span className="text-stone-400 text-sm">Yükleniyor...</span>
                     </div>
                   </td></tr>
@@ -261,7 +276,7 @@ export default function RaporlarPage() {
                             className="h-full rounded-full transition-all"
                             style={{
                               width: `${Math.min(Math.max(p.marginPct, 0), 100)}%`,
-                              background: p.marginPct >= 30 ? '#059669' : p.marginPct >= 15 ? '#EA580C' : p.marginPct >= 0 ? '#F59E0B' : '#EF4444',
+                              background: p.marginPct >= 30 ? '#059669' : p.marginPct >= 15 ? '#7C3AED' : p.marginPct >= 0 ? '#F59E0B' : '#EF4444',
                             }}
                           />
                         </div>

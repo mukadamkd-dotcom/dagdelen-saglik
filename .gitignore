@@ -40,3 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .claude/
+
+.vercel
+.env*.local
+test-haftalik.mjs

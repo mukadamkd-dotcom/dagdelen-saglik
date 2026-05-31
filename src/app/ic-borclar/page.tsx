@@ -24,7 +24,7 @@ interface CartItem {
 
 export default function TakaslarPage() {
   const { isAdminMode, cashierLocationId, cashierLocationName } = useMode()
-  const [tab, setTab] = useState<'takas' | 'gelen' | 'gecmis'>('takas')
+  const [tab, setTab] = useState<'takas' | 'gelen' | 'hareketler' | 'tumhareketler' | 'gecmis'>('takas')
 
   // ── Takas POS state ──────────────────────────────────────
   const [products, setProducts] = useState<Product[]>([])
@@ -39,7 +39,8 @@ export default function TakaslarPage() {
   const [notes, setNotes] = useState('')
   const [completing, setCompleting] = useState(false)
   const [successMsg, setSuccessMsg] = useState<{ items: CartItem[]; partner: string; total: number } | null>(null)
-  const [batchSelector, setBatchSelector] = useState<{ product: Product; batches: { id: string; expiry_date: string; quantity: number }[] } | null>(null)
+  const [miadMap, setMiadMap] = useState<Record<string, { date: string; qty: number }[]>>({})
+  const miadFetched = useRef(new Set<string>())
   const searchRef = useRef<HTMLInputElement>(null)
 
   // ── Gelen Takas state ────────────────────────────────────
@@ -50,6 +51,7 @@ export default function TakaslarPage() {
   const [inNotes, setInNotes] = useState('')
   const [inCompleting, setInCompleting] = useState(false)
   const [inSearch, setInSearch] = useState('')
+  const [showHariciForm, setShowHariciForm] = useState(false)
   const inSearchRef = useRef<HTMLInputElement>(null)
 
   // ── Geçmiş state ─────────────────────────────────────────
@@ -57,9 +59,18 @@ export default function TakaslarPage() {
   const [debtsLoading, setDebtsLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('')
 
-  useEffect(() => { fetchProducts() }, [])
+  // ── Takas hareketleri ─────────────────────────────────────
+  const [takasList, setTakasList] = useState<any[]>([])
+  const [takasLoading, setTakasLoading] = useState(false)
+
+  useEffect(() => { fetchProducts(); fetchTakaslar() }, [])
   useEffect(() => { if (tab === 'gecmis') fetchDebts() }, [tab])
-  useEffect(() => { if (cashierLocationId) setFromLocId(cashierLocationId) }, [cashierLocationId])
+  useEffect(() => {
+    if (cashierLocationId) {
+      setFromLocId(cashierLocationId)
+      setInToLocId(cashierLocationId)
+    }
+  }, [cashierLocationId])
 
   async function fetchProducts() {
     const [{ data: prods }, { data: inv }, { data: locs }] = await Promise.all([
@@ -94,9 +105,21 @@ export default function TakaslarPage() {
     setDebtsLoading(false)
   }
 
+  async function fetchTakaslar() {
+    setTakasLoading(true)
+    const { data } = await supabase
+      .from('transfers')
+      .select('*, products(name, unit), from_location:locations!transfers_from_location_id_fkey(name), to_location:locations!transfers_to_location_id_fkey(name)')
+      .order('created_at', { ascending: false })
+      .limit(300)
+    setTakasList(data ?? [])
+    setTakasLoading(false)
+  }
+
   async function markPaid(id: string) {
-    await supabase.from('internal_debts').update({ status: 'odendi', paid_at: new Date().toISOString() }).eq('id', id)
-    fetchDebts()
+    const { error } = await supabase.from('internal_debts').update({ status: 'odendi', paid_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('Güncelleme hatası: ' + error.message); return }
+    await fetchDebts()
   }
 
   const filtered = search.trim()
@@ -104,33 +127,41 @@ export default function TakaslarPage() {
     : products
 
   async function addToCart(product: Product) {
-    if (!fromLocId) { addToCartWithBatch(product, null, null); return }
-    const { data: batches } = await supabase
-      .from('inventory_batches').select('id, expiry_date, quantity')
-      .eq('product_id', product.id).eq('location_id', fromLocId).gt('quantity', 0).order('expiry_date')
-    const avail = batches ?? []
-    if (avail.length === 0) { addToCartWithBatch(product, null, null) }
-    else if (avail.length === 1) { addToCartWithBatch(product, avail[0].id, avail[0].expiry_date) }
-    else { setBatchSelector({ product, batches: avail }) }
-  }
-
-  function addToCartWithBatch(product: Product, batchId: string | null, expiryDate: string | null) {
-    const key = `${product.id}_${batchId ?? 'none'}`
     setCart(prev => {
-      const ex = prev.find(i => `${i.product.id}_${i.batch_id ?? 'none'}` === key)
-      if (ex) return prev.map(i => `${i.product.id}_${i.batch_id ?? 'none'}` === key ? { ...i, quantity: i.quantity + 1 } : i)
-      return [...prev, { product, quantity: 1, unit_price: product.standard_price, batch_id: batchId, expiry_date: expiryDate }]
+      const ex = prev.find(i => i.product.id === product.id)
+      if (ex) return prev.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i)
+      return [...prev, { product, quantity: 1, unit_price: product.standard_price, batch_id: null, expiry_date: null }]
     })
     setSearch('')
     setTimeout(() => searchRef.current?.focus(), 0)
+    if (!fromLocId) return
+    const key = `${product.id}_${fromLocId}`
+    if (miadFetched.current.has(key)) return
+    miadFetched.current.add(key)
+    const { data } = await supabase.from('stock_movements').select('notes, quantity')
+      .like('notes', 'SAYIM_MIAD:%').eq('to_location_id', fromLocId).eq('product_id', product.id)
+      .order('created_at', { ascending: false }).limit(50)
+    const seen = new Set<string>()
+    const miads: { date: string; qty: number }[] = []
+    ;(data ?? []).forEach((m: any) => {
+      const d = m.notes.replace('SAYIM_MIAD:', '')
+      if (!seen.has(d) && Number(m.quantity) > 0) { seen.add(d); miads.push({ date: d, qty: Number(m.quantity) }) }
+    })
+    miads.sort((a, b) => a.date.localeCompare(b.date))
+    setMiadMap(prev => ({ ...prev, [key]: miads }))
   }
 
   function removeFromCart(id: string) { setCart(prev => prev.filter(i => i.product.id !== id)) }
   function setQty(id: string, qty: number) { if (qty <= 0) { removeFromCart(id); return } setCart(prev => prev.map(i => i.product.id === id ? { ...i, quantity: qty } : i)) }
   function setPrice(id: string, price: number) { setCart(prev => prev.map(i => i.product.id === id ? { ...i, unit_price: price } : i)) }
+  function setCartItemExpiryDate(productId: string, batchId: string | null, date: string) {
+    const key = `${productId}_${batchId ?? 'none'}`
+    setCart(prev => prev.map(i => `${i.product.id}_${i.batch_id ?? 'none'}` === key ? { ...i, expiry_date: date || null } : i))
+  }
 
   function clearCart() {
     setCart([]); setStep('cart'); setPartnerLocId(''); setPartnerCustom(''); setNotes('')
+    setMiadMap({}); miadFetched.current.clear()
     setTimeout(() => searchRef.current?.focus(), 0)
   }
 
@@ -138,7 +169,9 @@ export default function TakaslarPage() {
   const partnerName = partnerLocId === '__custom'
     ? partnerCustom.trim()
     : (locations.find(l => l.id === partnerLocId)?.name ?? '')
-  const canComplete = !completing && cart.length > 0 && !!fromLocId && !!partnerName
+  const allCartHaveExpiry = cart.every(i => !!i.expiry_date)
+  const allInCartHaveExpiry = inCart.every(i => !!i.expiry_date)
+  const canComplete = !completing && cart.length > 0 && !!fromLocId && !!partnerName && allCartHaveExpiry
 
   async function completeExchange() {
     if (!canComplete) return
@@ -156,17 +189,51 @@ export default function TakaslarPage() {
           status: 'tamamlandi',
         })
 
-        // Batch stok düş
-        if (item.batch_id) {
-          const { data: batch } = await supabase.from('inventory_batches').select('quantity').eq('id', item.batch_id).single()
-          if (batch) await supabase.from('inventory_batches').update({ quantity: Math.max(0, Number(batch.quantity) - item.quantity) }).eq('id', item.batch_id)
+        // Gönderen stok düş
+        const { data: inv } = await supabase.from('inventory').select('id, quantity')
+          .eq('product_id', item.product.id).eq('location_id', fromLocId).maybeSingle()
+        if (inv) {
+          const { error: e1 } = await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - item.quantity) }).eq('id', inv.id)
+          if (e1) throw new Error('Gönderen stok güncellenemedi: ' + e1.message)
         }
 
-        // Genel stok düş
-        const { data: inv } = await supabase.from('inventory').select('id, quantity')
-          .eq('product_id', item.product.id).eq('location_id', fromLocId).single()
-        if (inv) {
-          await supabase.from('inventory').update({ quantity: Math.max(0, Number(inv.quantity) - item.quantity) }).eq('id', inv.id)
+        // Gönderen SAYIM_MIAD güncelle
+        if (item.expiry_date) {
+          const { data: lastMiadFrom } = await supabase.from('stock_movements').select('quantity')
+            .eq('product_id', item.product.id).eq('to_location_id', fromLocId).eq('notes', `SAYIM_MIAD:${item.expiry_date}`)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle()
+          const prevFromQty = Number(lastMiadFrom?.quantity ?? item.quantity)
+          await supabase.from('stock_movements').insert({
+            product_id: item.product.id, to_location_id: fromLocId,
+            quantity: Math.max(0, prevFromQty - item.quantity),
+            movement_type: 'transfer', notes: `SAYIM_MIAD:${item.expiry_date}`,
+          })
+        }
+
+        // Alıcı stok artır (dahili lokasyon ise)
+        if (partnerLocId && partnerLocId !== '__custom') {
+          const { data: toInv } = await supabase.from('inventory').select('id, quantity')
+            .eq('product_id', item.product.id).eq('location_id', partnerLocId).maybeSingle()
+          if (toInv) {
+            const { error: e2 } = await supabase.from('inventory').update({ quantity: Number(toInv.quantity) + item.quantity }).eq('id', toInv.id)
+            if (e2) throw new Error('Alıcı stok güncellenemedi: ' + e2.message)
+          } else {
+            const { error: e3 } = await supabase.from('inventory').insert({ product_id: item.product.id, location_id: partnerLocId, quantity: item.quantity })
+            if (e3) throw new Error('Alıcı stok oluşturulamadı: ' + e3.message)
+          }
+
+          // Alıcı SAYIM_MIAD güncelle
+          if (item.expiry_date) {
+            const { data: lastMiadTo } = await supabase.from('stock_movements').select('quantity')
+              .eq('product_id', item.product.id).eq('to_location_id', partnerLocId).eq('notes', `SAYIM_MIAD:${item.expiry_date}`)
+              .order('created_at', { ascending: false }).limit(1).maybeSingle()
+            const prevToQty = Number(lastMiadTo?.quantity ?? 0)
+            await supabase.from('stock_movements').insert({
+              product_id: item.product.id, to_location_id: partnerLocId,
+              quantity: prevToQty + item.quantity,
+              movement_type: 'transfer', notes: `SAYIM_MIAD:${item.expiry_date}`,
+            })
+          }
         }
 
         // Stock movement
@@ -176,7 +243,7 @@ export default function TakaslarPage() {
           to_location_id: partnerLocId !== '__custom' ? partnerLocId : null,
           quantity: item.quantity,
           movement_type: 'transfer',
-          reference_notes: `Takas: ${partnerName}`,
+          notes: `Takas: ${partnerName}`,
         })
       }
 
@@ -194,6 +261,7 @@ export default function TakaslarPage() {
       setSuccessMsg({ items: [...cart], partner: partnerName, total })
       clearCart()
       fetchProducts()
+      fetchTakaslar()
     } catch (e: any) {
       alert('Hata: ' + e.message)
     } finally {
@@ -206,7 +274,7 @@ export default function TakaslarPage() {
     ? products.filter(p => p.name.toLowerCase().includes(inSearch.toLowerCase()) || (p.barcode ?? '').includes(inSearch.trim()))
     : products
   const inTotal = inCart.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-  const canCompleteIn = !inCompleting && inCart.length > 0 && !!inToLocId && !!inSource.trim()
+  const canCompleteIn = !inCompleting && inCart.length > 0 && !!inToLocId && !!inSource.trim() && allInCartHaveExpiry
 
   function addToInCart(product: Product) {
     setInCart(prev => {
@@ -216,6 +284,9 @@ export default function TakaslarPage() {
     })
     setInSearch('')
     setTimeout(() => inSearchRef.current?.focus(), 0)
+  }
+  function setInExpiryDate(productId: string, date: string) {
+    setInCart(prev => prev.map(i => i.product.id === productId ? { ...i, expiry_date: date || null } : i))
   }
 
   function clearInCart() {
@@ -232,11 +303,26 @@ export default function TakaslarPage() {
       for (const item of inCart) {
         // Stok artır
         const { data: inv } = await supabase.from('inventory').select('id, quantity')
-          .eq('product_id', item.product.id).eq('location_id', inToLocId).single()
+          .eq('product_id', item.product.id).eq('location_id', inToLocId).maybeSingle()
         if (inv) {
-          await supabase.from('inventory').update({ quantity: Number(inv.quantity) + item.quantity }).eq('id', inv.id)
+          const { error: e1 } = await supabase.from('inventory').update({ quantity: Number(inv.quantity) + item.quantity }).eq('id', inv.id)
+          if (e1) throw new Error('Stok güncellenemedi: ' + e1.message)
         } else {
-          await supabase.from('inventory').insert({ product_id: item.product.id, location_id: inToLocId, quantity: item.quantity })
+          const { error: e2 } = await supabase.from('inventory').insert({ product_id: item.product.id, location_id: inToLocId, quantity: item.quantity })
+          if (e2) throw new Error('Stok oluşturulamadı: ' + e2.message)
+        }
+
+        // SAYIM_MIAD güncelle (miad girilmişse)
+        if (item.expiry_date) {
+          const { data: lastMiad } = await supabase.from('stock_movements').select('quantity')
+            .eq('product_id', item.product.id).eq('to_location_id', inToLocId).eq('notes', `SAYIM_MIAD:${item.expiry_date}`)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle()
+          const prevQty = Number(lastMiad?.quantity ?? 0)
+          await supabase.from('stock_movements').insert({
+            product_id: item.product.id, to_location_id: inToLocId,
+            quantity: prevQty + item.quantity,
+            movement_type: 'transfer', notes: `SAYIM_MIAD:${item.expiry_date}`,
+          })
         }
 
         // Stok hareketi
@@ -245,7 +331,7 @@ export default function TakaslarPage() {
           to_location_id: inToLocId,
           quantity: item.quantity,
           movement_type: 'transfer',
-          reference_notes: `Gelen Takas: ${inSource.trim()}`,
+          notes: `Gelen Takas: ${inSource.trim()}`,
         })
       }
 
@@ -260,6 +346,7 @@ export default function TakaslarPage() {
 
       alert(`✓ Takas tamamlandı! ${inSource.trim()} → ${depo?.name ?? ''} | ₺${inTotal.toLocaleString('tr-TR')} değer stoka eklendi.`)
       clearInCart()
+      setShowHariciForm(false)
       fetchProducts()
       fetchDebts()
     } catch (e: any) {
@@ -271,6 +358,12 @@ export default function TakaslarPage() {
 
   const totalUnpaid = debts.filter(d => d.status === 'odenmedi').reduce((s, d) => s + Number(d.amount), 0)
   const filteredDebts = filterStatus ? debts.filter(d => d.status === filterStatus) : debts
+  const gelenTakaslar = takasList.filter(t =>
+    isAdminMode ? !!t.to_location_id : t.to_location_id === cashierLocationId
+  )
+  const tumTakaslar = takasList.filter(t =>
+    isAdminMode ? true : (t.from_location_id === cashierLocationId || t.to_location_id === cashierLocationId)
+  )
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 88px)' }}>
@@ -279,7 +372,9 @@ export default function TakaslarPage() {
       <div className="flex items-end gap-0 mb-5 border-b border-stone-200 flex-shrink-0">
         {[
           { key: 'takas', label: 'Yeni Takas (Gönder)' },
-          { key: 'gelen', label: 'Gelen Takas (Eczane)' },
+          { key: 'gelen', label: 'Gelen Takaslar' },
+          { key: 'hareketler', label: 'Takas Geçmişi' },
+          { key: 'tumhareketler', label: 'Tüm Hareketler' },
           { key: 'gecmis', label: 'Borç Geçmişi' },
         ].map(t => (
           <button
@@ -287,7 +382,7 @@ export default function TakaslarPage() {
             onClick={() => setTab(t.key as any)}
             className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.2em] border-b-2 transition-all ${
               tab === t.key
-                ? 'border-[#F27A1A] text-[#E06010]'
+                ? 'border-[#7C3AED] text-[#6D28D9]'
                 : 'border-transparent text-stone-400 hover:text-stone-600'
             }`}
           >
@@ -314,7 +409,12 @@ export default function TakaslarPage() {
                 <div className="flex gap-2">
                   <select
                     value={fromLocId}
-                    onChange={e => setFromLocId(e.target.value)}
+                    onChange={e => {
+                      setFromLocId(e.target.value)
+                      setCart(prev => prev.map(i => ({ ...i, expiry_date: null })))
+                      setMiadMap({})
+                      miadFetched.current.clear()
+                    }}
                     className="border border-stone-200 rounded-sm px-3 py-2 text-xs outline-none focus:border-stone-400 text-stone-700 bg-white"
                   >
                     <option value="">Veren lokasyon...</option>
@@ -388,7 +488,7 @@ export default function TakaslarPage() {
                             <span className="text-sm font-bold text-stone-900 tabular-nums">₺{p.standard_price.toLocaleString('tr-TR')}</span>
                           </div>
                           {inCart && (
-                            <div className="bg-[#F27A1A] text-white text-center text-[10px] font-semibold py-0.5 rounded-sm tracking-wide">
+                            <div className="bg-[#7C3AED] text-white text-center text-[10px] font-semibold py-0.5 rounded-sm tracking-wide">
                               Sepette: {inCart.quantity}
                             </div>
                           )}
@@ -454,6 +554,50 @@ export default function TakaslarPage() {
                                   (() => { const d = Math.floor((new Date(item.expiry_date).getTime() - Date.now()) / 86400000); return d < 0 ? 'bg-red-50 text-red-600' : d <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-stone-100 text-stone-500' })()
                                 }`}>Miad: {new Date(item.expiry_date).toLocaleDateString('tr-TR')}</span>
                               )}
+                          {(() => {
+                            const key = `${item.product.id}_${fromLocId}`
+                            const miads = fromLocId ? miadMap[key] : undefined
+                            return (
+                              <div className="mt-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-[0.1em] flex-shrink-0">Miad:</span>
+                                  {!fromLocId ? (
+                                    <span className="text-[10px] text-stone-400 italic">Önce lokasyon seçin</span>
+                                  ) : miads === undefined ? (
+                                    <span className="text-[10px] text-stone-400 italic">yükleniyor...</span>
+                                  ) : miads.length === 0 ? (
+                                    <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-sm font-semibold">Kayıtlı miad yok</span>
+                                  ) : (
+                                    <>
+                                      {miads.map(m => {
+                                        const daysLeft = Math.floor((new Date(m.date).getTime() - Date.now()) / 86400000)
+                                        const isSelected = item.expiry_date === m.date
+                                        return (
+                                          <button
+                                            key={m.date}
+                                            type="button"
+                                            onClick={() => setCart(prev => prev.map(i => i.product.id === item.product.id ? { ...i, expiry_date: isSelected ? null : m.date } : i))}
+                                            className={`px-2.5 py-0.5 rounded-sm text-[10px] font-bold border transition-all ${
+                                              isSelected ? 'bg-[#7C3AED] text-white border-[#7C3AED]'
+                                              : daysLeft < 0 ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                              : daysLeft <= 30 ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                              : 'bg-stone-50 text-stone-700 border-stone-200 hover:border-stone-500'
+                                            }`}
+                                          >
+                                            {new Date(m.date).toLocaleDateString('tr-TR')}
+                                            <span className="ml-1 opacity-60 font-normal">({m.qty})</span>
+                                          </button>
+                                        )
+                                      })}
+                                      {!item.expiry_date && (
+                                        <span className="text-[10px] text-red-500 font-semibold">← Seçmek zorunlu</span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })()}
                             </div>
                             <button onClick={() => removeFromCart(item.product.id)} className="text-stone-300 hover:text-red-400 text-xl leading-none flex-shrink-0 transition-colors">×</button>
                           </div>
@@ -491,9 +635,15 @@ export default function TakaslarPage() {
                       <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Toplam Değer</span>
                       <span className="text-2xl font-bold text-stone-900 tabular-nums">₺{total.toLocaleString('tr-TR')}</span>
                     </div>
+                    {cart.length > 0 && !allCartHaveExpiry && (
+                      <p className="text-red-500 text-[10px] font-semibold text-center bg-red-50 border border-red-100 rounded-sm px-3 py-2">
+                        Miad tarihi seçilmemiş ürün var — ürüne tıklayın ve miad seçin
+                      </p>
+                    )}
                     <button
                       onClick={() => setStep('confirm')}
-                      className="w-full bg-[#F27A1A] hover:bg-[#E06010] text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
+                      disabled={!allCartHaveExpiry}
+                      className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
                     >
                       Alıcı Mağazayı Seç →
                     </button>
@@ -537,7 +687,7 @@ export default function TakaslarPage() {
 
                 <div className="border-t border-stone-100 px-4 py-4 space-y-3.5 flex-shrink-0">
                   {/* Total */}
-                  <div className="bg-[#E06010] text-white rounded-sm px-4 py-3 flex justify-between items-center">
+                  <div className="bg-[#6D28D9] text-white rounded-sm px-4 py-3 flex justify-between items-center">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">Toplam Değer</span>
                     <span className="text-2xl font-bold tabular-nums">₺{total.toLocaleString('tr-TR')}</span>
                   </div>
@@ -591,7 +741,7 @@ export default function TakaslarPage() {
                   <button
                     onClick={completeExchange}
                     disabled={!canComplete}
-                    className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
+                    className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
                   >
                     {completing ? 'Kaydediliyor...' : 'Takası Tamamla'}
                   </button>
@@ -603,26 +753,87 @@ export default function TakaslarPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════
-          TAB 2: Gelen Takas — Eczaneden Dağdelen'e
+          TAB 2: Gelen Takaslar — liste görünümü
       ══════════════════════════════════════════════════════ */}
-      {tab === 'gelen' && (
-        <div className="flex gap-5 flex-1 min-h-0">
+      {tab === 'gelen' && !showHariciForm && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h3 className="font-bold text-stone-900 text-lg">Gelen Takaslar</h3>
+              <p className="text-stone-400 text-sm mt-0.5">{isAdminMode ? 'Tüm lokasyonlara gelen takaslar' : `${cashierLocationName ?? ''} — gelen takaslar`}</p>
+            </div>
+            <button onClick={() => setShowHariciForm(true)} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2.5 rounded text-[11px] tracking-[0.2em] uppercase font-medium transition-all">
+              + Harici Takas Ekle
+            </button>
+          </div>
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-200">
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tarih</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Ürün</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Miktar</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Gönderen</th>
+                  {isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Alıcı</th>}
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tutar</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Not</th>
+                </tr>
+              </thead>
+              <tbody>
+                {takasLoading ? (
+                  <tr><td colSpan={isAdminMode ? 7 : 6} className="px-5 py-12 text-center"><div className="flex items-center justify-center gap-2.5"><div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" /><span className="text-stone-400 text-sm">Yükleniyor...</span></div></td></tr>
+                ) : gelenTakaslar.length === 0 ? (
+                  <tr><td colSpan={isAdminMode ? 7 : 6} className="px-5 py-12 text-center text-stone-400 text-sm">Henüz gelen takas yok</td></tr>
+                ) : gelenTakaslar.map(t => (
+                  <tr key={t.id} className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
+                    <td className="px-5 py-3.5 text-stone-400 text-xs">{new Date(t.created_at).toLocaleDateString('tr-TR')}</td>
+                    <td className="px-5 py-3.5 font-semibold text-stone-900">{t.products?.name}</td>
+                    <td className="px-5 py-3.5 text-stone-600 tabular-nums">{t.quantity} {t.products?.unit}</td>
+                    <td className="px-5 py-3.5 font-semibold text-emerald-700">{t.from_location?.name ?? '—'}</td>
+                    {isAdminMode && <td className="px-5 py-3.5 text-stone-600">{t.to_location?.name ?? '—'}</td>}
+                    <td className="px-5 py-3.5 font-bold text-stone-900 tabular-nums">₺{(Number(t.quantity) * Number(t.transfer_price)).toLocaleString('tr-TR')}</td>
+                    <td className="px-5 py-3.5 text-stone-400 text-xs max-w-[140px] truncate">{t.notes ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: Harici form */}
+      {tab === 'gelen' && showHariciForm && (
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex items-center gap-3 mb-4 flex-shrink-0">
+            <button onClick={() => setShowHariciForm(false)} className="text-stone-400 hover:text-stone-700 transition-colors text-xl leading-none">←</button>
+            <div>
+              <h3 className="font-bold text-stone-900">Harici Takas Girişi</h3>
+              <p className="text-stone-400 text-sm">Sistem dışı kaynaktan gelen ürünleri stoka ekle</p>
+            </div>
+          </div>
+          <div className="flex gap-5 flex-1 min-h-0">
 
           {/* LEFT: Ürün kataloğu */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-stone-900">Eczaneden Gelen Ürünler</h3>
+                <h3 className="font-semibold text-stone-900">Gelen Ürünler</h3>
                 <p className="text-stone-400 text-sm mt-0.5">Ürünleri seçin → stoka eklenecek, iç borca yazılacak</p>
               </div>
-              <select
-                value={inToLocId}
-                onChange={e => setInToLocId(e.target.value)}
-                className="border border-stone-200 rounded-sm px-3 py-2 text-xs outline-none focus:border-stone-400 text-stone-700 bg-white"
-              >
-                <option value="">Teslim alınacak lokasyon...</option>
-                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              {isAdminMode ? (
+                <select
+                  value={inToLocId}
+                  onChange={e => setInToLocId(e.target.value)}
+                  className="border border-stone-200 rounded-sm px-3 py-2 text-xs outline-none focus:border-stone-400 text-stone-700 bg-white"
+                >
+                  <option value="">Teslim alınacak lokasyon...</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              ) : (
+                <div className="border border-stone-200 rounded-sm px-3 py-2 text-xs text-stone-700 bg-stone-50 font-medium">
+                  {cashierLocationName}
+                </div>
+              )}
             </div>
 
             {/* Arama */}
@@ -672,7 +883,7 @@ export default function TakaslarPage() {
                         <p className="text-stone-800 font-semibold text-xs leading-tight line-clamp-2">{p.name}</p>
                         <span className="text-sm font-bold text-stone-900 tabular-nums mt-auto">₺{p.purchase_price.toLocaleString('tr-TR')}</span>
                         {inC && (
-                          <div className="bg-[#F27A1A] text-white text-center text-[10px] font-semibold py-0.5 rounded-sm">
+                          <div className="bg-[#7C3AED] text-white text-center text-[10px] font-semibold py-0.5 rounded-sm">
                             Sepette: {inC.quantity}
                           </div>
                         )}
@@ -701,7 +912,7 @@ export default function TakaslarPage() {
             <div className="flex-1 overflow-y-auto min-h-0">
               {inCart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                  <p className="text-stone-400 text-xs text-center px-4">Eczaneden gelen ürünlere tıklayın</p>
+                  <p className="text-stone-400 text-xs text-center px-4">Gelen ürünlere tıklayın</p>
                 </div>
               ) : (
                 <div className="divide-y divide-stone-100">
@@ -724,6 +935,20 @@ export default function TakaslarPage() {
                         </div>
                         <span className="text-sm font-bold text-stone-900 tabular-nums w-16 text-right flex-shrink-0">₺{(item.quantity * item.unit_price).toLocaleString('tr-TR')}</span>
                       </div>
+                      <div className="flex items-center gap-1.5 ml-7 mt-1.5">
+                        <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-[0.1em] flex-shrink-0">Miad:</span>
+                        <input
+                          type="date"
+                          value={item.expiry_date ?? ''}
+                          onChange={e => setInExpiryDate(item.product.id, e.target.value)}
+                          className="border border-stone-200 rounded-sm px-2 py-1 text-xs outline-none focus:border-stone-400 transition-colors text-stone-700"
+                        />
+                        {item.expiry_date && (
+                          <span className="text-[10px] text-amber-600 font-semibold">
+                            {Math.floor((new Date(item.expiry_date).getTime() - Date.now()) / 86400000)} gün
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -739,12 +964,12 @@ export default function TakaslarPage() {
 
                 {/* Eczane adı */}
                 <div>
-                  <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1.5">Gönderen Eczane *</label>
+                  <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em] mb-1.5">Gönderen Mağaza / Yer *</label>
                   <input
                     type="text"
                     value={inSource}
                     onChange={e => setInSource(e.target.value)}
-                    placeholder="Eczane adı..."
+                    placeholder="Mağaza / yer adı..."
                     className="w-full border border-stone-200 rounded-sm px-3 py-2.5 text-sm outline-none focus:border-stone-400 transition-colors"
                   />
                 </div>
@@ -762,11 +987,12 @@ export default function TakaslarPage() {
 
                 {!inToLocId && <p className="text-amber-600 text-[10px] font-semibold text-center">Teslim alınacak lokasyon seçin</p>}
                 {!inSource.trim() && <p className="text-amber-600 text-[10px] font-semibold text-center">Eczane adı girin</p>}
+                {!allInCartHaveExpiry && <p className="text-red-500 text-[10px] font-semibold text-center bg-red-50 border border-red-100 rounded-sm px-3 py-2">Tüm ürünler için miad tarihi girin</p>}
 
                 <button
                   onClick={completeIncoming}
                   disabled={!canCompleteIn}
-                  className="w-full bg-[#F27A1A] hover:bg-[#E06010] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
+                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white py-4 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-all"
                 >
                   {inCompleting ? 'Kaydediliyor...' : 'Takası Kaydet → Stoka Ekle'}
                 </button>
@@ -774,10 +1000,129 @@ export default function TakaslarPage() {
             )}
           </div>
         </div>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════
-          TAB 3: Geçmiş
+          TAB 3: Takas Geçmişi
+      ══════════════════════════════════════════════════════ */}
+      {tab === 'hareketler' && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="mb-5">
+            <h3 className="font-bold text-stone-900 text-lg">Takas Geçmişi</h3>
+            <p className="text-stone-400 text-sm mt-0.5">{isAdminMode ? 'Tüm takas hareketleri' : `${cashierLocationName ?? ''} — gönderilen ve gelen takaslar`}</p>
+          </div>
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-200">
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tarih</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Ürün</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Miktar</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Gönderen</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Alıcı</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tutar</th>
+                  {!isAdminMode && <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Yön</th>}
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Not</th>
+                </tr>
+              </thead>
+              <tbody>
+                {takasLoading ? (
+                  <tr><td colSpan={isAdminMode ? 7 : 8} className="px-5 py-12 text-center"><div className="flex items-center justify-center gap-2.5"><div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" /><span className="text-stone-400 text-sm">Yükleniyor...</span></div></td></tr>
+                ) : tumTakaslar.length === 0 ? (
+                  <tr><td colSpan={isAdminMode ? 7 : 8} className="px-5 py-12 text-center text-stone-400 text-sm">Henüz takas hareketi yok</td></tr>
+                ) : tumTakaslar.map(t => {
+                  const isGelen = t.to_location_id === cashierLocationId
+                  return (
+                    <tr key={t.id} className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
+                      <td className="px-5 py-3.5 text-stone-400 text-xs">{new Date(t.created_at).toLocaleDateString('tr-TR')}</td>
+                      <td className="px-5 py-3.5 font-semibold text-stone-900">{t.products?.name}</td>
+                      <td className="px-5 py-3.5 text-stone-600 tabular-nums">{t.quantity} {t.products?.unit}</td>
+                      <td className="px-5 py-3.5 text-stone-600">{t.from_location?.name ?? '—'}</td>
+                      <td className="px-5 py-3.5 text-stone-600">{t.to_location?.name ?? '—'}</td>
+                      <td className="px-5 py-3.5 font-bold text-stone-900 tabular-nums">₺{(Number(t.quantity) * Number(t.transfer_price)).toLocaleString('tr-TR')}</td>
+                      {!isAdminMode && (
+                        <td className="px-5 py-3.5">
+                          <span className={`px-2.5 py-0.5 rounded-sm text-xs font-semibold border ${isGelen ? 'border-emerald-200 text-emerald-700 bg-emerald-50/50' : 'border-amber-200 text-amber-700 bg-amber-50/50'}`}>
+                            {isGelen ? '↓ Alındı' : '↑ Gönderildi'}
+                          </span>
+                        </td>
+                      )}
+                      <td className="px-5 py-3.5 text-stone-400 text-xs max-w-[140px] truncate">{t.notes ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          TAB 4: Tüm Hareketler
+      ══════════════════════════════════════════════════════ */}
+      {tab === 'tumhareketler' && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h3 className="font-bold text-stone-900 text-lg">Tüm Takas Hareketleri</h3>
+              <p className="text-stone-400 text-sm mt-0.5">Tüm şubelerin gelen ve gönderilen takasları</p>
+            </div>
+            <div className="bg-stone-50 border border-stone-200 rounded-sm px-4 py-2.5 text-sm shadow-sm">
+              <span className="text-stone-500 font-medium text-xs uppercase tracking-[0.1em]">Toplam Kayıt</span>
+              <strong className="text-stone-900 ml-2 tabular-nums font-bold">{takasList.length}</strong>
+            </div>
+          </div>
+          <div className="bg-white rounded-sm border border-stone-200 shadow-sm overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-200">
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tarih</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Ürün</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Miktar</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Gönderen Şube</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Alıcı Şube</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Tutar</th>
+                  <th className="px-5 py-3.5 text-left text-[10px] font-semibold text-stone-400 uppercase tracking-[0.15em]">Not</th>
+                </tr>
+              </thead>
+              <tbody>
+                {takasLoading ? (
+                  <tr><td colSpan={7} className="px-5 py-12 text-center">
+                    <div className="flex items-center justify-center gap-2.5">
+                      <div className="w-5 h-5 border-2 border-stone-200 border-t-stone-700 rounded-full animate-spin" />
+                      <span className="text-stone-400 text-sm">Yükleniyor...</span>
+                    </div>
+                  </td></tr>
+                ) : takasList.length === 0 ? (
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-stone-400 text-sm">Henüz takas hareketi yok</td></tr>
+                ) : takasList.map(t => (
+                  <tr key={t.id} className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
+                    <td className="px-5 py-3.5 text-stone-400 text-xs whitespace-nowrap">{new Date(t.created_at).toLocaleDateString('tr-TR')}</td>
+                    <td className="px-5 py-3.5 font-semibold text-stone-900">{t.products?.name ?? '—'}</td>
+                    <td className="px-5 py-3.5 text-stone-600 tabular-nums">{t.quantity} {t.products?.unit}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="px-2.5 py-0.5 rounded-sm text-xs font-semibold border border-amber-200 text-amber-700 bg-amber-50/50">
+                        {t.from_location?.name ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="px-2.5 py-0.5 rounded-sm text-xs font-semibold border border-emerald-200 text-emerald-700 bg-emerald-50/50">
+                        {t.to_location?.name ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-stone-900 tabular-nums">₺{(Number(t.quantity) * Number(t.transfer_price)).toLocaleString('tr-TR')}</td>
+                    <td className="px-5 py-3.5 text-stone-400 text-xs max-w-[160px] truncate">{t.notes ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          TAB 5: Geçmiş
       ══════════════════════════════════════════════════════ */}
       {tab === 'gecmis' && (
         <div className="flex-1 overflow-y-auto">
@@ -797,8 +1142,7 @@ export default function TakaslarPage() {
             </select>
           </div>
 
-          <div className="bg-white border border-stone-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="bg-white border border-stone-200 shadow-sm overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-100">
@@ -848,43 +1192,6 @@ export default function TakaslarPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Miad (Batch) Seçim Modalı */}
-      {batchSelector && (
-        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded border border-stone-200 w-full max-w-sm p-6 shadow-lg">
-            <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-[0.2em] mb-1">Miad Seçimi</p>
-            <h3 className="text-stone-900 font-bold text-lg mb-1 leading-tight">{batchSelector.product.name}</h3>
-            <p className="text-stone-400 text-xs mb-4">Hangi miaddan gönderilsin?</p>
-            <div className="space-y-2 mb-4">
-              {batchSelector.batches.map(b => {
-                const d = Math.floor((new Date(b.expiry_date).getTime() - Date.now()) / 86400000)
-                return (
-                  <button
-                    key={b.id}
-                    onClick={() => { addToCartWithBatch(batchSelector.product, b.id, b.expiry_date); setBatchSelector(null) }}
-                    className={`w-full flex items-center justify-between px-4 py-3 border rounded-sm text-left transition-all hover:border-stone-500 ${d < 0 ? 'border-red-200 bg-red-50' : d <= 30 ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white hover:bg-stone-50'}`}
-                  >
-                    <div>
-                      <p className={`text-sm font-bold ${d < 0 ? 'text-red-600' : d <= 30 ? 'text-amber-700' : 'text-stone-900'}`}>
-                        {new Date(b.expiry_date).toLocaleDateString('tr-TR')}
-                      </p>
-                      <p className="text-[10px] text-stone-400 mt-0.5">
-                        {d < 0 ? 'SÜRESİ DOLMUŞ' : d === 0 ? 'Bugün son' : `${d} gün kaldı`}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold text-stone-600 tabular-nums">{b.quantity} adet</p>
-                  </button>
-                )
-              })}
-            </div>
-            <button onClick={() => setBatchSelector(null)} className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 py-2.5 rounded-sm text-[11px] tracking-[0.2em] uppercase font-medium transition-colors">
-              İptal
-            </button>
           </div>
         </div>
       )}
@@ -916,7 +1223,7 @@ export default function TakaslarPage() {
             </div>
             <button
               onClick={() => { setSuccessMsg(null); setTimeout(() => searchRef.current?.focus(), 0) }}
-              className="w-full bg-[#F27A1A] hover:bg-[#E06010] text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
+              className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-3.5 rounded-sm text-[11px] tracking-[0.3em] uppercase font-semibold transition-colors"
             >
               Yeni Takas
             </button>
